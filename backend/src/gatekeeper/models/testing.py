@@ -71,7 +71,7 @@ class FakeBackend:
         except KeyError:
             raise ConfigError(f"no {role.value} model configured for the fake backend") from None
 
-    def capabilities(self) -> Capabilities:
+    def capabilities(self, model: str | None = None) -> Capabilities:
         return self._capabilities
 
     def health(self) -> BackendHealth:

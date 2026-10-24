@@ -162,7 +162,7 @@ class ModelAdapter:
             validator(request)
 
         model = self._driver.model_for(request.role)
-        capabilities = self._driver.capabilities()
+        capabilities = self._driver.capabilities(model)
         if request.images and not capabilities.supports_images:
             raise CapabilityMissing(
                 f"backend {self._driver.name!r} model {model!r} does not accept image input"

@@ -38,7 +38,7 @@ help:
 	@exit 0
 
 setup:
-	$(UV) sync
+	$(UV) sync --all-extras
 	$(UV) run pre-commit install
 
 check: lint typecheck test

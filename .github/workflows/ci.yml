@@ -51,7 +51,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies (locked)
-        run: uv sync --locked
+        run: uv sync --locked --all-extras
 
       - name: File hygiene hooks
         run: uv run pre-commit run --all-files --show-diff-on-failure
