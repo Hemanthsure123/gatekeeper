@@ -1,0 +1,80 @@
+[project]
+name = "gatekeeper"
+version = "0.0.0"
+description = "Local-first, open-model GitHub triage for pull requests, issues and comments."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = ">=0.12.5"
+
+[tool.uv.build-backend]
+module-name = "gatekeeper"
+module-root = "backend/src"
+
+[tool.ruff]
+line-length = 100
+src = ["backend/src", "backend/tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "PTH", # flake8-use-pathlib
+    "PT",  # flake8-pytest-style
+    "S",   # flake8-bandit (security)
+    "N",   # pep8-naming
+    "RUF", # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101"] # assert is how pytest works
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+files = ["backend/src", "backend/tests", "scripts"]
+mypy_path = "backend/src,scripts"
+explicit_package_bases = true
+warn_unreachable = true
+
+[tool.pytest]
+minversion = "9.0"
+strict = true
+testpaths = ["backend/tests", "scripts/tests"]
+pythonpath = ["scripts"]
+addopts = ["-ra", "--import-mode=importlib", "--cov", "--cov-report=term-missing"]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["backend/src/gatekeeper", "scripts"]
+omit = ["scripts/tests/*"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = false
+exclude_also = ['if __name__ == "__main__":']
