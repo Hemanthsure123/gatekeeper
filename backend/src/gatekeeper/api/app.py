@@ -1,0 +1,156 @@
+"""FastAPI app factory: the webhook gateway plus health endpoints.
+
+Local only: the server binds to 127.0.0.1 by default. Interactive API docs are off.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Awaitable, Callable, MutableMapping
+from typing import Any, Final
+from uuid import uuid4
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
+
+from gatekeeper.api.webhooks import WebhookStore, process_delivery, signature_valid
+from gatekeeper.config import Settings, get_settings
+from gatekeeper.errors import (
+    AuthenticationFailed,
+    ConfigError,
+    ErrorCode,
+    GatekeeperError,
+    PayloadTooLarge,
+    ValidationFailed,
+)
+from gatekeeper.logging import log_context
+
+Readiness = Callable[[], dict[str, str]]
+Scope = MutableMapping[str, Any]
+Message = MutableMapping[str, Any]
+Receive = Callable[[], Awaitable[Message]]
+Send = Callable[[Message], Awaitable[None]]
+ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
+
+_REQUEST_ID: Final = re.compile(r"[A-Za-z0-9._-]{1,64}")
+STATUS_BY_CODE: Final = {
+    ErrorCode.VALIDATION_FAILED: 400,
+    ErrorCode.AUTHENTICATION_FAILED: 401,
+    ErrorCode.POLICY_VIOLATION: 403,
+    ErrorCode.NOT_FOUND: 404,
+    ErrorCode.PAYLOAD_TOO_LARGE: 413,
+    ErrorCode.EXTERNAL_SERVICE: 503,
+}
+
+
+class RequestIdMiddleware:
+    """Binds a request id (incoming ``X-Request-ID`` if sane, else new) into logging."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        incoming = dict(scope.get("headers") or []).get(b"x-request-id", b"").decode("latin-1")
+        request_id = incoming if _REQUEST_ID.fullmatch(incoming) else uuid4().hex
+
+        async def send_with_id(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                message["headers"] = [
+                    *message.get("headers", []),
+                    (b"x-request-id", request_id.encode()),
+                ]
+            await send(message)
+
+        with log_context(request_id=request_id):
+            await self.app(scope, receive, send_with_id)
+
+
+def error_response(error: GatekeeperError) -> JSONResponse:
+    """The error model's public dict only; internal details never leave the process."""
+    try:
+        status = STATUS_BY_CODE.get(ErrorCode(error.code), 500)
+    except ValueError:
+        status = 500
+    return JSONResponse({"error": error.to_public_dict()}, status_code=status)
+
+
+async def _gatekeeper_error(_request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, GatekeeperError):
+        return error_response(exc)
+    return JSONResponse({"error": {"code": "internal_error"}}, status_code=500)
+
+
+async def _read_limited(request: Request, limit: int) -> bytes:
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise PayloadTooLarge(f"body larger than {limit} bytes")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > limit:
+            raise PayloadTooLarge(f"body larger than {limit} bytes")
+    return bytes(body)
+
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    store: WebhookStore | None = None,
+    readiness: Readiness | None = None,
+) -> FastAPI:
+    """Build the gateway. Refuses to start without GITHUB_WEBHOOK_SECRET."""
+    settings = settings or get_settings()
+    settings.require("GITHUB_WEBHOOK_SECRET")
+    secret = (
+        settings.github_webhook_secret.get_secret_value() if settings.github_webhook_secret else ""
+    )
+    if not secret:
+        raise ConfigError("missing required setting(s): GITHUB_WEBHOOK_SECRET")
+    if store is None or readiness is None:
+        from gatekeeper.api.deps import default_readiness, default_store
+
+        store = store or default_store(settings)
+        readiness = readiness or default_readiness(settings)
+    webhook_store, check_ready = store, readiness
+
+    app = FastAPI(
+        title="Gatekeeper",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        exception_handlers={GatekeeperError: _gatekeeper_error},
+    )
+    app.add_middleware(RequestIdMiddleware)
+
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/readyz")
+    async def readyz() -> JSONResponse:
+        components = await run_in_threadpool(check_ready)
+        ready = all(state in {"ok", "not configured"} for state in components.values())
+        return JSONResponse(
+            {"status": "ready" if ready else "not ready", "components": components},
+            status_code=200 if ready else 503,
+        )
+
+    @app.post("/webhooks/github")
+    async def github_webhook(request: Request) -> JSONResponse:
+        body = await _read_limited(request, settings.webhook_max_body_bytes)
+        if not signature_valid(secret, body, request.headers.get("x-hub-signature-256")):
+            raise AuthenticationFailed("missing or invalid X-Hub-Signature-256")
+        event = request.headers.get("x-github-event")
+        delivery_id = request.headers.get("x-github-delivery")
+        if not event or not delivery_id:
+            raise ValidationFailed("X-GitHub-Event and X-GitHub-Delivery headers are required")
+        outcome = await run_in_threadpool(
+            process_delivery, settings, webhook_store, event, delivery_id, body
+        )
+        return JSONResponse(outcome.body, status_code=outcome.status_code)
+
+    return app

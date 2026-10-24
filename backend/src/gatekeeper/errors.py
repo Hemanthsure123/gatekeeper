@@ -28,6 +28,8 @@ class ErrorCode(StrEnum):
     MODEL_OUTPUT_INVALID = "model_output_invalid"
     INPUT_TOO_LARGE = "input_too_large"
     CAPABILITY_MISSING = "capability_missing"
+    AUTHENTICATION_FAILED = "authentication_failed"
+    PAYLOAD_TOO_LARGE = "payload_too_large"
 
 
 class GatekeeperError(Exception):
@@ -156,3 +158,15 @@ class CapabilityMissing(_CodedError):  # noqa: N818 - name fixed by the spec
     """The request needs a feature (for example images) the backend or model lacks."""
 
     error_code = ErrorCode.CAPABILITY_MISSING
+
+
+class AuthenticationFailed(_CodedError):  # noqa: N818 - matches the other error names
+    """A request could not be authenticated (for example a bad webhook signature)."""
+
+    error_code = ErrorCode.AUTHENTICATION_FAILED
+
+
+class PayloadTooLarge(_CodedError):  # noqa: N818 - matches the other error names
+    """A request body exceeded the configured limit."""
+
+    error_code = ErrorCode.PAYLOAD_TOO_LARGE
