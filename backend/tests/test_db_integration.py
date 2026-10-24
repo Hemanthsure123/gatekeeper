@@ -23,6 +23,8 @@ from gatekeeper.db import (
     ItemAuthor,
     ItemKind,
     Repo,
+    find_repo,
+    get_or_create_repo,
     session_scope,
     utcnow,
 )
@@ -165,3 +167,23 @@ def test_session_scope_rolls_back_on_error(session_factory: sessionmaker[Session
 def test_engine_sessions_use_utc(migrated_engine: Engine) -> None:
     with migrated_engine.connect() as connection:
         assert connection.execute(text("SHOW timezone")).scalar_one() == "UTC"
+
+
+def test_get_or_create_repo_is_case_insensitive(session_factory: sessionmaker[Session]) -> None:
+    name = f"Case-{uuid.uuid4().hex[:8]}"
+    with session_scope(session_factory) as session:
+        first = get_or_create_repo(session, "Octo-Org", name)
+        first_id = first.id
+    with session_scope(session_factory) as session:
+        again = get_or_create_repo(session, "octo-org", name.upper())
+        assert again.id == first_id
+        assert (again.owner, again.name) == ("Octo-Org", name)  # first casing kept
+        assert find_repo(session, "OCTO-ORG", name.lower()) is not None
+
+
+def test_repo_names_are_unique_ignoring_case(session_factory: sessionmaker[Session]) -> None:
+    name = f"dup-{uuid.uuid4().hex[:8]}"
+    with session_scope(session_factory) as session:
+        session.add(Repo(owner="octo", name=name))
+    with pytest.raises(IntegrityError), session_scope(session_factory) as session:
+        session.add(Repo(owner="OCTO", name=name.upper()))

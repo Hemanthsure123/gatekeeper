@@ -18,10 +18,12 @@ from sqlalchemy import (
     CheckConstraint,
     Double,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, validates
@@ -99,7 +101,15 @@ def find_identity_keys(value: Any, path: str = "content") -> list[str]:
 
 class Repo(UuidPrimaryKey, Timestamps, Base):
     __tablename__ = "repos"
-    __table_args__ = (UniqueConstraint("owner", "name"),)
+    # GitHub owner/repo names are case-insensitive: unique on lower(), display casing kept.
+    __table_args__ = (
+        Index(
+            "uq_repos_owner_name_ci",
+            func.lower(text("owner")),
+            func.lower(text("name")),
+            unique=True,
+        ),
+    )
 
     github_repo_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     owner: Mapped[str] = mapped_column(Text)

@@ -10,6 +10,7 @@ from gatekeeper.db.models import (
     ItemKind,
     Repo,
 )
+from gatekeeper.db.repos import find_repo, get_or_create_repo
 from gatekeeper.db.session import (
     create_db_engine,
     create_session_factory,
@@ -28,6 +29,8 @@ __all__ = [
     "Repo",
     "create_db_engine",
     "create_session_factory",
+    "find_repo",
+    "get_or_create_repo",
     "session_scope",
     "sqlalchemy_url",
     "utcnow",
