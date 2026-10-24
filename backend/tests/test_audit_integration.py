@@ -6,6 +6,7 @@ import uuid
 from uuid import UUID
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
@@ -21,6 +22,8 @@ from gatekeeper.audit import (
 )
 from gatekeeper.db import Item, Repo, session_scope
 from gatekeeper.errors import AuditError
+from gatekeeper.models.testing import fake_adapter
+from gatekeeper.models.types import ImagePart, ModelRequest, TextPart
 
 pytestmark = pytest.mark.integration
 
@@ -165,3 +168,34 @@ def test_verify_unknown_run(reader: AuditReader) -> None:
     result = reader.verify_chain(uuid.uuid4())
     assert not result.ok
     assert result.reason == "run has no events"
+
+
+class _Echo(BaseModel):
+    answer: str
+
+
+def test_model_calls_are_audited_into_a_verifiable_chain(
+    recorder: AuditRecorder, reader: AuditReader
+) -> None:
+    image = ImagePart.from_bytes(b"\x89PNG-fake-image-bytes", "image/png")
+    adapter, _ = fake_adapter([_Echo(answer="ok")])
+    run = recorder.start_run()
+    request = ModelRequest[_Echo](
+        prompt_id="test.echo",
+        prompt_version="1",
+        parts=(TextPart(text=f"mail dev@example.com {SECRET}"), image),
+        response_model=_Echo,
+    )
+    adapter.generate(request, run)
+    run.end()
+
+    events = reader.get_events(run.run_id)
+    assert [e.type for e in events] == ["run_start", "model_request", "model_response", "run_end"]
+    stored_request = events[1].payload
+    assert stored_request["text_parts"] == ["mail [REDACTED:email] [REDACTED:secret]"]
+    assert stored_request["images"] == [
+        {"sha256": image.sha256, "mime_type": "image/png", "size_bytes": len(image.data)}
+    ]
+    assert "fake-image-bytes" not in str(stored_request)
+    assert events[2].parent_seq == 2
+    assert reader.verify_chain(run.run_id).ok

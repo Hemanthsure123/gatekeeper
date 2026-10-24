@@ -244,7 +244,7 @@ def test_ollama_end_to_end_through_adapter(mock: respx.MockRouter) -> None:
     mock.post(f"{OLLAMA}/api/chat").respond(json=chat_reply('{"greeting":"hi","number":3}'))
     adapter = ModelAdapter(OllamaBackend(settings()))
     request = ModelRequest[Answer](
-        prompt_id="t", prompt_version="1", parts=[TextPart(text="hi")], response_model=Answer
+        prompt_id="t", prompt_version="1", parts=(TextPart(text="hi"),), response_model=Answer
     )
     response = adapter.generate(request, allow_unaudited=True)
     assert response.parsed == Answer(greeting="hi", number=3)
@@ -305,13 +305,16 @@ def test_gemini_request_shape_and_parsing(mock: respx.MockRouter) -> None:
     body = json.loads(route.calls.last.request.content)
     user, model_turn, repair = body["contents"]
     assert user["parts"][0] == {"text": "look"}
-    assert user["parts"][1]["inlineData"]["mimeType"] == "image/png"
+    inline = user["parts"][1]["inlineData"]  # the SDK mixes camel and snake case keys
+    assert inline.get("mimeType", inline.get("mime_type")) == "image/png"
+    assert base64.b64decode(inline["data"]) == PNG.data
     assert (model_turn["role"], repair["role"]) == ("model", "user")
     assert body["systemInstruction"]["parts"][0]["text"] == "system text"
     config = body["generationConfig"]
     assert config["responseMimeType"] == "application/json"
     assert config["responseJsonSchema"] == Answer.model_json_schema()
-    assert config["thinkingConfig"]["thinkingLevel"] == "HIGH"
+    thinking = config["thinkingConfig"]
+    assert thinking.get("thinkingLevel", thinking.get("thinking_level")) == "HIGH"
     assert (config["temperature"], config["seed"], config["maxOutputTokens"]) == (0.0, 42, 256)
     assert route.calls.last.request.headers["x-goog-api-key"] == "test-key-not-real"
 

@@ -323,7 +323,7 @@ class ModelAdapter:
 
     def _backoff(self, attempt: int, retry_after: float | None) -> float:
         """Exponential backoff with jitter; a server Retry-After is a lower bound."""
-        ceiling = min(BACKOFF_CAP_S, BACKOFF_BASE_S * 2 ** (attempt - 1))
+        ceiling = min(BACKOFF_CAP_S, BACKOFF_BASE_S * 2.0 ** (attempt - 1))
         delay = ceiling / 2 + self._rand() * ceiling / 2
         if retry_after is not None and retry_after > 0:
             delay = max(delay, min(retry_after, RETRY_AFTER_CAP_S))

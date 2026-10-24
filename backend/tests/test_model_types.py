@@ -52,7 +52,7 @@ def test_defaults() -> None:
 def test_request_is_immutable() -> None:
     req = request()
     with pytest.raises(ValidationError):
-        req.temperature = 1  # type: ignore[misc]
+        req.temperature = 1
 
 
 @pytest.mark.parametrize(

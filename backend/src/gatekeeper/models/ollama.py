@@ -204,7 +204,9 @@ class OllamaBackend:
         message = data.get("message")
         content = message.get("content") if isinstance(message, Mapping) else None
         if not isinstance(content, str):
-            raise ExternalServiceError("Ollama returned a reply without message content")
+            raise ExternalServiceError(
+                "Ollama returned a reply without message content", retryable=False
+            )
         return Completion(
             text=content,
             input_tokens=data.get("prompt_eval_count"),
@@ -247,9 +249,13 @@ class OllamaBackend:
         try:
             data = response.json()
         except ValueError as exc:
-            raise ExternalServiceError("Ollama returned a non-JSON response") from exc
+            raise ExternalServiceError(
+                "Ollama returned a non-JSON response", retryable=False
+            ) from exc
         if not isinstance(data, dict):
-            raise ExternalServiceError("Ollama returned an unexpected response shape")
+            raise ExternalServiceError(
+                "Ollama returned an unexpected response shape", retryable=False
+            )
         return data
 
 
