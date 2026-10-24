@@ -11,6 +11,7 @@ Rules:
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -28,6 +29,8 @@ ModelBackend = Literal["ollama", "gemini_api", "vllm"]
 _HTTP = frozenset({"http", "https"})
 _POSTGRES = frozenset({"postgresql", "postgresql+psycopg", "postgres"})
 _REDIS = frozenset({"redis", "rediss"})
+# Ollama keep_alive: Go duration ("10m", "1h30m", "-1m") or plain seconds ("300", "-1").
+_KEEP_ALIVE = re.compile(r"-?\d+|-?(\d+(\.\d+)?(ns|us|ms|s|m|h))+")
 
 
 def validate_url(value: str, schemes: frozenset[str], *, require_path: bool = False) -> str:
@@ -80,6 +83,16 @@ class Settings(BaseSettings):
     gemma_model_primary: str | None = None
     gemma_model_secondary: str | None = None
 
+    # P02: model adapter tuning. Optional, non-secret; empty or missing uses the default.
+    model_timeout_s: float = Field(default=120.0, gt=0, le=3600)
+    model_max_retries: int = Field(default=2, ge=0, le=10)
+    model_max_concurrency: int = Field(default=1, ge=1, le=64)
+    model_cache_ttl_s: int = Field(default=604_800, ge=1)
+    # Ollama's own default is 4096 tokens below 24 GiB VRAM, far too small for PR diffs.
+    # 16k fits typical PRs while keeping the KV cache affordable on CPU-only machines.
+    ollama_num_ctx: int = Field(default=16_384, ge=2_048, le=1_048_576)
+    ollama_keep_alive: str = "10m"
+
     # P03: GitHub
     github_token_dev: SecretStr | None = None
     webhook_proxy_url: str | None = None
@@ -114,6 +127,13 @@ class Settings(BaseSettings):
     @classmethod
     def _http_url(cls, value: str | None) -> str | None:
         return None if value is None else validate_url(value, _HTTP)
+
+    @field_validator("ollama_keep_alive")
+    @classmethod
+    def _keep_alive(cls, value: str) -> str:
+        if not _KEEP_ALIVE.fullmatch(value.strip()):
+            raise ValueError("must be a duration like 10m, 1h30m, 300 (seconds) or -1")
+        return value.strip()
 
     @field_validator("redis_url")
     @classmethod

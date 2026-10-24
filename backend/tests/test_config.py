@@ -155,3 +155,35 @@ def test_get_settings_wraps_errors_without_values(monkeypatch: pytest.MonkeyPatc
     assert SENTINEL not in message
     assert caught.value.__cause__ is None
     assert caught.value.__suppress_context__
+
+
+def test_model_tuning_defaults_and_empty_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODEL_TIMEOUT_S", "")
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.model_timeout_s == 120
+    assert settings.model_max_retries == 2
+    assert settings.model_max_concurrency == 1
+    assert settings.model_cache_ttl_s == 604_800
+    assert settings.ollama_num_ctx == 16_384
+    assert settings.ollama_keep_alive == "10m"
+
+
+@pytest.mark.parametrize("value", ["10m", "1h30m", "300", "-1", "-1m", "0", "2.5h"])
+def test_accepts_keep_alive_durations(value: str) -> None:
+    assert load(ollama_keep_alive=value).ollama_keep_alive == value
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("ollama_keep_alive", "forever"),
+        ("ollama_num_ctx", "512"),
+        ("model_max_concurrency", "0"),
+        ("model_timeout_s", "-1"),
+        ("model_max_retries", "99"),
+    ],
+)
+def test_rejects_bad_model_tuning(field: str, value: str) -> None:
+    with pytest.raises(ValidationError):
+        load(**{field: value})
