@@ -1,0 +1,46 @@
+# --- Secrets: never commit ---------------------------------------------------
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# --- Python virtualenvs -------------------------------------------------------
+.venv/
+venv/
+env/
+
+# --- Python caches and tool output ---------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --- Build output ---------------------------------------------------------------
+build/
+dist/
+*.egg-info/
+
+# --- JavaScript (dashboard / extension) -----------------------------------------
+node_modules/
+
+# --- Local data volumes (bind mounts, dumps, model caches) ------------------------
+data/
+.data/
+volumes/
+
+# --- IDEs and OS files -----------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Claude Code personal settings (project settings.json IS committed) -------------
+.claude/settings.local.json
