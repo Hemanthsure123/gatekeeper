@@ -39,12 +39,8 @@ def restore_logging() -> Iterator[None]:
 
 
 def settings(app_env: str = "test") -> Settings:
-    return Settings(
-        _env_file=None,  # type: ignore[call-arg]
-        app_env=app_env,
-        log_level="DEBUG",
-        session_secret=SECRET,
-    )
+    values: dict[str, Any] = {"app_env": app_env, "log_level": "DEBUG", "session_secret": SECRET}
+    return Settings(_env_file=None, **values)  # type: ignore[call-arg]
 
 
 def json_lines(stream: io.StringIO) -> list[dict[str, Any]]:

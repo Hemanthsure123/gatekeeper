@@ -48,6 +48,9 @@ class AnalysisStatus(StrEnum):
 # models never import the audit package, which itself depends on the models.
 EVENT_ACTORS: Final = ("system", "model", "maintainer", "github")
 EVENT_SCHEMA_VERSION: Final = "gatekeeper.event/1"
+ITEM_AUTHORS_COMMENT: Final = (
+    "The only place author identity lives. The review core must never read this table."
+)
 
 # Keys that identify a person. Rejected anywhere inside items.content (ORM check) and
 # at the top level by a database CHECK constraint as a safety net.
@@ -140,6 +143,7 @@ class ItemAuthor(CreatedAt, Base):
     """The ONLY place author identity lives. The review core must never read this table."""
 
     __tablename__ = "item_authors"
+    __table_args__ = ({"comment": ITEM_AUTHORS_COMMENT},)
 
     item_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("items.id", ondelete="CASCADE"), primary_key=True

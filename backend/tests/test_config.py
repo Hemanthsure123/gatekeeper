@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -29,8 +30,8 @@ def clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]
     get_settings.cache_clear()
 
 
-def load(**env: str) -> Settings:
-    return Settings(_env_file=None, **env)  # type: ignore[arg-type]
+def load(**env: Any) -> Settings:
+    return Settings(_env_file=None, **env)  # type: ignore[call-arg]
 
 
 def test_every_template_key_has_a_field() -> None:
@@ -52,7 +53,7 @@ def test_reads_environment_and_ignores_unknown_keys(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("MODEL_BACKEND", "vllm")
     monkeypatch.setenv("GITHUB_APP_ID", "12345")
     monkeypatch.setenv("SOMETHING_UNRELATED", "x")
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
     assert settings.app_env == "test"
     assert settings.log_level == "DEBUG"
     assert settings.model_backend == "vllm"
@@ -63,7 +64,7 @@ def test_reads_environment_and_ignores_unknown_keys(monkeypatch: pytest.MonkeyPa
 def test_reads_a_dotenv_file(tmp_path: Path) -> None:
     env_file = tmp_path / "custom.env"
     env_file.write_text("APP_ENV=production\nOLLAMA_MODEL=\n", encoding="utf-8")
-    settings = Settings(_env_file=env_file)
+    settings = Settings(_env_file=env_file)  # type: ignore[call-arg]
     assert settings.app_env == "production"
     assert settings.ollama_model is None
 
@@ -71,7 +72,7 @@ def test_reads_a_dotenv_file(tmp_path: Path) -> None:
 def test_empty_strings_become_none_or_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OLLAMA_MODEL", "")
     monkeypatch.setenv("APP_ENV", "")
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
     assert settings.ollama_model is None
     assert settings.app_env == "development"
     assert load(redis_url="  ").redis_url is None

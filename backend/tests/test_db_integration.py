@@ -51,7 +51,10 @@ def test_migration_round_trip_matches_models(
             diff = compare_metadata(MigrationContext.configure(connection), Base.metadata)
             assert diff == [], f"models and migrations differ: {diff}"
             triggers = connection.execute(
-                text("SELECT tgname FROM pg_trigger WHERE tgrelid = 'events'::regclass")
+                text(
+                    "SELECT tgname FROM pg_trigger "
+                    "WHERE tgrelid = 'events'::regclass AND NOT tgisinternal"
+                )
             ).scalars()
             assert set(triggers) == {"events_append_only", "events_no_truncate"}
 

@@ -117,10 +117,7 @@ def upgrade() -> None:
             name=op.f("fk_item_authors_item_id_items"),
             ondelete="CASCADE",
         ),
-    )
-    op.execute(
-        "COMMENT ON TABLE item_authors IS "
-        "'The only place author identity lives. The review core must never read this table.'"
+        comment="The only place author identity lives. The review core must never read this table.",
     )
 
     op.create_table(

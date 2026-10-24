@@ -11,8 +11,7 @@ from alembic import context
 from sqlalchemy import URL, pool
 
 from gatekeeper.config import get_settings
-from gatekeeper.db.models import Base
-from gatekeeper.db.session import create_db_engine, sqlalchemy_url
+from gatekeeper.db import Base, create_db_engine, sqlalchemy_url
 from gatekeeper.logging import configure_logging
 
 config = context.config
