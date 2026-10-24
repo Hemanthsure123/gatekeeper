@@ -23,6 +23,11 @@ class ErrorCode(StrEnum):
     EXTERNAL_SERVICE = "external_service_error"
     AUDIT = "audit_error"
     POLICY_VIOLATION = "policy_violation"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    MODEL_TIMEOUT = "model_timeout"
+    MODEL_OUTPUT_INVALID = "model_output_invalid"
+    INPUT_TOO_LARGE = "input_too_large"
+    CAPABILITY_MISSING = "capability_missing"
 
 
 class GatekeeperError(Exception):
@@ -105,3 +110,49 @@ class PolicyViolation(_CodedError):  # noqa: N818 - name fixed by the spec
     """An action was blocked by policy (for example, auto-closing a first PR)."""
 
     error_code = ErrorCode.POLICY_VIOLATION
+
+
+class ModelUnavailable(_CodedError):  # noqa: N818 - name fixed by the spec
+    """The model backend could not be reached or refused service. Retryable by default.
+
+    ``retry_after`` carries a server-provided delay in seconds (HTTP Retry-After).
+    """
+
+    error_code = ErrorCode.MODEL_UNAVAILABLE
+    default_retryable = True
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool | None = None,
+        details: Mapping[str, Any] | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message, retryable=retryable, details=details)
+        self.retry_after = retry_after
+
+
+class ModelTimeout(_CodedError):  # noqa: N818 - name fixed by the spec
+    """A model call exceeded MODEL_TIMEOUT_S. Retryable."""
+
+    error_code = ErrorCode.MODEL_TIMEOUT
+    default_retryable = True
+
+
+class ModelOutputInvalid(_CodedError):  # noqa: N818 - name fixed by the spec
+    """Model output failed schema validation, including after the repair attempt."""
+
+    error_code = ErrorCode.MODEL_OUTPUT_INVALID
+
+
+class InputTooLarge(_CodedError):  # noqa: N818 - name fixed by the spec
+    """The input does not fit the configured context window (never silently truncated)."""
+
+    error_code = ErrorCode.INPUT_TOO_LARGE
+
+
+class CapabilityMissing(_CodedError):  # noqa: N818 - name fixed by the spec
+    """The request needs a feature (for example images) the backend or model lacks."""
+
+    error_code = ErrorCode.CAPABILITY_MISSING
