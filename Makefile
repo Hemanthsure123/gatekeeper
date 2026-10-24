@@ -38,6 +38,7 @@ help:
 	$(info db-reset     drop and re-create the schema, development only)
 	$(info model-check  check the model backend; ARGS=--vision also tests image input)
 	$(info api          run the webhook gateway on 127.0.0.1:8000)
+	$(info worker       run one queue worker; Ctrl+C finishes the current job, then stops)
 	@exit 0
 
 setup:
@@ -95,3 +96,6 @@ model-check:
 
 api:
 	$(UV) run python -m gatekeeper.api $(ARGS)
+
+worker:
+	$(UV) run python -m gatekeeper.worker

@@ -69,10 +69,15 @@ class AuditRecorder:
         self._redactor = redactor
 
     def start_run(
-        self, item_id: UUID | None = None, payload: Mapping[str, Any] | None = None
+        self,
+        item_id: UUID | None = None,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        run_id: UUID | None = None,
     ) -> Run:
-        """Begin a run and record its ``run_start`` event (seq 1)."""
-        run = Run(self, run_id=uuid4(), item_id=item_id)
+        """Begin a run and record its ``run_start`` event (seq 1). ``run_id`` lets callers
+        create related rows (for example an analysis) with the same id first."""
+        run = Run(self, run_id=run_id or uuid4(), item_id=item_id)
         run.record(EventType.RUN_START, Actor.SYSTEM, payload or {})
         return run
 

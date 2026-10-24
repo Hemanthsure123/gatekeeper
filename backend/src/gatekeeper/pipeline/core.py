@@ -1,0 +1,56 @@
+"""Pipeline building blocks: the identity-free item view, the step protocol and runner."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Protocol
+from uuid import UUID
+
+from sqlalchemy.orm import Session, sessionmaker
+
+from gatekeeper.audit import Run
+from gatekeeper.config import Settings
+from gatekeeper.github.normalize import ItemContent
+from gatekeeper.logging import get_logger
+
+log = get_logger("gatekeeper.pipeline")
+
+
+@dataclass(frozen=True)
+class ItemView:
+    """Everything a step may know about an item. Identity-free by construction: authors
+    live in ``gatekeeper.identity`` and are not reachable from here."""
+
+    item_id: UUID
+    kind: str
+    external_id: str
+    content: ItemContent
+    content_hash: str
+
+
+@dataclass
+class PipelineContext:
+    settings: Settings
+    session_factory: sessionmaker[Session]
+    run: Run
+    item: ItemView
+    analysis_id: UUID
+    check_deadline: Callable[[], None] = field(default=lambda: None)
+
+
+class Step(Protocol):
+    name: str
+
+    def run(self, ctx: PipelineContext) -> None: ...
+
+
+class Pipeline:
+    def __init__(self, steps: Sequence[Step]) -> None:
+        self.steps = tuple(steps)
+
+    def run(self, ctx: PipelineContext) -> None:
+        for step in self.steps:
+            ctx.check_deadline()
+            log.info("pipeline step", step=step.name)
+            step.run(ctx)
