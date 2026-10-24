@@ -29,7 +29,7 @@ def test_missing_node_explains_what_to_install(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     use_settings(monkeypatch, webhook_proxy_url=CHANNEL)
-    monkeypatch.setattr(relay.shutil, "which", lambda _name: None)
+    monkeypatch.setattr("relay.shutil.which", lambda _name: None)
     assert relay.main([]) == 2
     assert "Node.js" in capsys.readouterr().out
 
@@ -38,9 +38,14 @@ def test_runs_pinned_smee_client_without_printing_the_channel(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     use_settings(monkeypatch, webhook_proxy_url=CHANNEL)
-    monkeypatch.setattr(relay.shutil, "which", lambda _name: "npx")
+    monkeypatch.setattr("relay.shutil.which", lambda _name: "npx")
     commands: list[list[str]] = []
-    monkeypatch.setattr(relay.subprocess, "call", lambda cmd: commands.append(cmd) or 0)
+
+    def call(command: list[str]) -> int:
+        commands.append(command)
+        return 0
+
+    monkeypatch.setattr("relay.subprocess.call", call)
     assert relay.main(["--port", "8123"]) == 0
     assert commands == [
         [

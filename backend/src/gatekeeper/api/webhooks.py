@@ -167,7 +167,9 @@ def process_delivery(
             reason = exc.message
     if reason is not None:
         store.mark(delivery_id, DeliveryStatus.IGNORED)
-        log.info("webhook delivery ignored", delivery_id=delivery_id, event=event, reason=reason)
+        log.info(
+            "webhook delivery ignored", delivery_id=delivery_id, github_event=event, reason=reason
+        )
         return Outcome(200, {"status": "ignored", "reason": reason})
 
     try:

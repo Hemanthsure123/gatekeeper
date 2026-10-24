@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 from typing import Any
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
+from fastapi import FastAPI
 
 from gatekeeper.api.app import create_app
 from gatekeeper.api.webhooks import (
@@ -21,6 +23,30 @@ from gatekeeper.config import Settings
 from gatekeeper.errors import ConfigError
 
 SECRET = "synthetic-webhook-secret"
+
+
+class AppClient:
+    """In-process ASGI client via httpx.ASGITransport (Starlette's AppClient now wants
+    the separate httpx2 package, which is not a project dependency)."""
+
+    def __init__(self, app: FastAPI) -> None:
+        self.app = app
+
+    def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        async def send() -> httpx.Response:
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.request(method, url, **kwargs)
+
+        return asyncio.run(send())
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        return self.request("POST", url, **kwargs)
 
 
 class MemoryStore:
@@ -58,9 +84,9 @@ def settings(**values: Any) -> Settings:
     return Settings(_env_file=None, **base)  # type: ignore[call-arg]
 
 
-def client_for(store: MemoryStore, **values: Any) -> TestClient:
+def client_for(store: MemoryStore, **values: Any) -> AppClient:
     app = create_app(settings(**values), store=store, readiness=lambda: {"database": "ok"})
-    return TestClient(app)
+    return AppClient(app)
 
 
 def sign(body: bytes, secret: str = SECRET) -> str:
@@ -78,7 +104,7 @@ def pr_event(action: str = "opened", repo: str = "octo/play", number: int = 5) -
 
 
 def post(
-    client: TestClient,
+    client: AppClient,
     body: bytes,
     *,
     event: str = "pull_request",
@@ -203,7 +229,7 @@ def test_malformed_pull_request_payload_is_ignored() -> None:
 
 
 def test_health_and_readiness() -> None:
-    client = TestClient(
+    client = AppClient(
         create_app(settings(), store=MemoryStore(), readiness=lambda: {"database": "error"})
     )
     assert client.get("/healthz").json() == {"status": "ok"}

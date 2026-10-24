@@ -69,10 +69,12 @@ def test_fetch_pr_prints_result(
         run_id = UUID(int=8)
         status = "completed"
 
-    monkeypatch.setattr(cli.Services, "from_settings", classmethod(lambda cls, s: object()))
-    monkeypatch.setattr(
-        cli, "process_pr", lambda _svc, ref, trigger: calls.append(f"{ref}:{trigger}") or Result()
-    )
+    def process(_services: object, ref: object, trigger: str) -> Result:
+        calls.append(f"{ref}:{trigger}")
+        return Result()
+
+    monkeypatch.setattr("gatekeeper.cli.Services.from_settings", lambda _settings: object())
+    monkeypatch.setattr(cli, "process_pr", process)
     assert cli.main(["fetch-pr", "https://github.com/octo/play/pull/9"]) == 0
     out = capsys.readouterr().out
     assert calls == ["octo/play#9:cli"]
@@ -88,7 +90,7 @@ def test_external_failures_exit_1(
     def fail(*_args: object, **_kwargs: object) -> None:
         raise ExternalServiceError("GitHub down")
 
-    monkeypatch.setattr(cli.Services, "from_settings", classmethod(lambda cls, s: object()))
+    monkeypatch.setattr("gatekeeper.cli.Services.from_settings", lambda _settings: object())
     monkeypatch.setattr(cli, "process_pr", fail)
     assert cli.main(["fetch-pr", "octo/play#9"]) == 1
     assert "external_service_error" in capsys.readouterr().err
