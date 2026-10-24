@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- P02 model adapter (`gatekeeper.models`):
+  - Ollama backend and optional Gemini API backend (`--extra gemini`);
+  - typed requests and responses, retries, structured output with one repair attempt, explicit context size, fail-open Redis cache;
+  - audit events written by the adapter;
+  - `FakeBackend` for tests.
+- Prompt templates (`gatekeeper.prompts`) with escaped untrusted-content blocks.
+- `make model-check` (`ARGS=--vision`).
+- Model tuning settings: MODEL_TIMEOUT_S, MODEL_MAX_RETRIES, MODEL_MAX_CONCURRENCY, MODEL_CACHE_TTL_S, OLLAMA_NUM_CTX, OLLAMA_KEEP_ALIVE.
+- Migration 0002: repo owner/name are unique case-insensitively, plus `get_or_create_repo`.
+- ADR 0003.
+
+### Changed
+
+- The audit chain hash now also covers actor, parent_seq, item_id, schema_version and created_at. Reset development data with `make db-reset`.
+
+### Added (P00–P01)
+
 - P01 backend foundation:
   - typed settings with `require()`;
   - structlog logging with redaction and context binding;

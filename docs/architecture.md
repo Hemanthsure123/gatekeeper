@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **partly built**. As of P01 the infrastructure layer and the audit trail library exist. The other layers are planned. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md) and [ADR 0002](adr/0002-database-identity-and-audit.md).
+Status: **partly built**. As of P02 these exist: the infrastructure layer, the audit trail library, and the model adapter that the review core will use. The other layers are planned. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md), [ADR 0002](adr/0002-database-identity-and-audit.md) and [ADR 0003](adr/0003-model-adapter.md).
 
 ```mermaid
 flowchart LR
@@ -75,3 +75,22 @@ erDiagram
 
 - **`items.content` is identity-free.** Identity lives only in `item_authors`, which the review core must never read.
 - **`events` is append-only.** A trigger rejects UPDATE, DELETE and TRUNCATE. Each run's events form a SHA-256 chain over redacted payloads. Writing fails closed: if an event cannot be recorded, the step stops.
+
+## Built in P02: model adapter and prompts
+
+```mermaid
+flowchart LR
+    F[Feature code] -->|ModelRequest + response_model| A[ModelAdapter]
+    A --> V[validators] --> S[size check] --> C{cache}
+    C -->|hit| R[ModelResponse]
+    C -->|miss| D[driver: Ollama / Gemini / Fake]
+    D -->|JSON| P[Pydantic validate<br/>+ 1 repair] --> R
+    A -.->|model_request / model_response / error| AT[(Audit trail)]
+    C --- RD[(Redis)]
+```
+
+| Module | What it provides |
+| --- | --- |
+| `gatekeeper.models` | `get_backend()` returns the `ModelAdapter`. It provides typed requests and responses, retries with backoff, native structured output plus validation and one repair attempt, `InputTooLarge` instead of silent truncation, a fail-open Redis cache, and audit events written by the adapter. |
+| `gatekeeper.models.testing` | `FakeBackend` and `fake_adapter()`. Every test uses these instead of a live model. |
+| `gatekeeper.prompts` | Versioned `PromptTemplate`s. Untrusted slots are wrapped in escaped `<untrusted_content>` blocks, and the system text must state `UNTRUSTED_CONTENT_RULE`. |

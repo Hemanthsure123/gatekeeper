@@ -38,6 +38,7 @@ g. **No secrets in code, logs, tests or fixtures.** Secrets live only in `.env` 
 | `make env-check` / `make env-sync` | SET/MISSING per key grouped by prompt / append missing keys empty; never print values |
 | `make migrate` / `make migrate-down` | Alembic upgrade head / downgrade one revision |
 | `make db-reset` | downgrade to base and upgrade to head; refuses unless `APP_ENV=development` |
+| `make model-check` | backend health, capabilities, two structured calls (2nd = cache hit); `ARGS=--vision` tests image input |
 | `make doctor` | tool versions and Ollama status; never reads `.env` |
 | `make clean` | remove caches and build output |
 
@@ -48,6 +49,7 @@ g. **No secrets in code, logs, tests or fixtures.** Secrets live only in `.env` 
 - Package code lives in `backend/src/gatekeeper/` and tests in `backend/tests/`. Tooling scripts live in `scripts/`, with tests in `scripts/tests/`.
 - Backend building blocks (P01): `gatekeeper.config.get_settings()` + `settings.require(...)`, `gatekeeper.logging`, `gatekeeper.errors`, `gatekeeper.db` (sync SQLAlchemy 2.1 + psycopg 3, Alembic in `backend/alembic`), `gatekeeper.audit` (`AuditRecorder`, `AuditReader`). See ADR 0002.
 - Schema changes only via new Alembic revisions; never edit an applied revision.
+- Model calls: always `gatekeeper.models.get_backend().generate(request, run)` with a Pydantic `response_model` and a `PromptTemplate` from `gatekeeper.prompts`. Put all GitHub-sourced text in untrusted slots. Tests use `gatekeeper.models.testing.fake_adapter`, never a live model. See ADR 0003.
 - Use small, pure functions at the edges of I/O. Use typed models (dataclasses or pydantic) for anything crossing a boundary.
 - Recipes in the Makefile must stay shell-agnostic (sh and cmd.exe): call `uv`, `python` and `docker` only.
 
