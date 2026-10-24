@@ -79,8 +79,11 @@ def test_vision_failure_is_reported(
     no_vision = Capabilities(False, True, False, 8192)
     adapter, _ = fake_adapter(reply, capabilities=no_vision)
     monkeypatch.setattr(check, "get_backend", lambda _settings: adapter)
-    assert check.main(["--vision"]) == 3
-    assert "Vision: FAIL (capability_missing" in capsys.readouterr().out
+    assert check.main(["--vision"]) == 0
+    out = capsys.readouterr().out
+    assert "Vision: FAIL (capability_missing" in out
+    assert "WARNING: vision check failed" in out
+    assert check.main(["--require-vision"]) == 3
 
 
 def test_unhealthy_backend(

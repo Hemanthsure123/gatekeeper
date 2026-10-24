@@ -2,7 +2,8 @@
 through the full adapter (the second should be a cache hit). ``--vision`` also sends a
 generated solid-red PNG and asks for its colour. Never prints secrets.
 
-Exit codes: 0 ok, 1 backend/model problem, 2 configuration problem, 3 vision check failed.
+Exit codes: 0 ok, 1 backend/model problem, 2 configuration problem, 3 vision check failed
+(only with ``--require-vision``; a plain ``--vision`` failure is a warning, exit 0).
 """
 
 from __future__ import annotations
@@ -80,6 +81,11 @@ def run_vision(adapter: ModelAdapter) -> bool:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check the configured model backend.")
     parser.add_argument("--vision", action="store_true", help="also test image input")
+    parser.add_argument(
+        "--require-vision",
+        action="store_true",
+        help="test image input and exit 3 if it fails",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -120,8 +126,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Model call failed ({exc.code}): {exc.message}")
         return 1
 
-    if args.vision and not run_vision(adapter):
-        return 3
+    if (args.vision or args.require_vision) and not run_vision(adapter):
+        if args.require_vision:
+            return 3
+        print("WARNING: vision check failed; image input may not work with this model/backend.")
     return 0
 
 

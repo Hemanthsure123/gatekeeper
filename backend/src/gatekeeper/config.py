@@ -29,6 +29,7 @@ ModelBackend = Literal["ollama", "gemini_api", "vllm"]
 _HTTP = frozenset({"http", "https"})
 _POSTGRES = frozenset({"postgresql", "postgresql+psycopg", "postgres"})
 _REDIS = frozenset({"redis", "rediss"})
+_REPO_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+")
 # Ollama keep_alive: Go duration ("10m", "1h30m", "-1m") or plain seconds ("300", "-1").
 _KEEP_ALIVE = re.compile(r"-?\d+|-?(\d+(\.\d+)?(ns|us|ms|s|m|h))+")
 
@@ -99,6 +100,16 @@ class Settings(BaseSettings):
     github_app_id: int | None = Field(default=None, gt=0)
     github_app_private_key_path: Path | None = None
     github_webhook_secret: SecretStr | None = None
+    # Optional, non-secret; empty or missing uses the default.
+    gatekeeper_allowed_repos: str | None = None
+    github_api_base_url: str = "https://api.github.com"
+    webhook_max_body_bytes: int = Field(default=10_485_760, ge=1_024, le=26_214_400)
+    job_timeout_s: float = Field(default=1800.0, gt=0, le=86_400)
+    worker_poll_interval_s: float = Field(default=1.0, gt=0, le=60)
+    job_lease_s: int = Field(default=120, ge=10, le=3_600)
+    job_max_attempts: int = Field(default=3, ge=1, le=20)
+    diff_max_bytes: int = Field(default=300_000, ge=1_000)
+    pr_max_files: int = Field(default=300, ge=1, le=3_000)
 
     # P07 / P14 / P16
     hf_token: SecretStr | None = None
@@ -135,6 +146,21 @@ class Settings(BaseSettings):
             raise ValueError("must be a duration like 10m, 1h30m, 300 (seconds) or -1")
         return value.strip()
 
+    @field_validator("gatekeeper_allowed_repos")
+    @classmethod
+    def _allowed_repos(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+        if any(not _REPO_NAME.fullmatch(entry) for entry in entries):
+            raise ValueError("must be a comma-separated list of owner/name entries")
+        return ",".join(entries) or None
+
+    @field_validator("github_api_base_url")
+    @classmethod
+    def _api_url(cls, value: str) -> str:
+        return validate_url(value, _HTTP).rstrip("/")
+
     @field_validator("redis_url")
     @classmethod
     def _redis_url(cls, value: str | None) -> str | None:
@@ -146,6 +172,19 @@ class Settings(BaseSettings):
         if value is not None:
             validate_url(value.get_secret_value(), _POSTGRES, require_path=True)
         return value
+
+    @property
+    def allowed_repos(self) -> frozenset[str]:
+        """Lower-cased ``owner/name`` entries from GATEKEEPER_ALLOWED_REPOS."""
+        raw = self.gatekeeper_allowed_repos or ""
+        return frozenset(entry.lower() for entry in raw.split(",") if entry)
+
+    def repo_allowed(self, owner: str, name: str) -> bool:
+        """Case-insensitive allowlist check. An empty list allows everything in
+        development and test, and nothing in production."""
+        if not self.allowed_repos:
+            return self.app_env != "production"
+        return f"{owner}/{name}".lower() in self.allowed_repos
 
     def require(self, *keys: str) -> None:
         """Raise ConfigError naming every key in ``keys`` that is not set. Never shows values."""

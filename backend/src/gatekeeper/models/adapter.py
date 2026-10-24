@@ -182,7 +182,7 @@ class ModelAdapter:
             max_output_tokens=request.max_output_tokens,
             reasoning=request.reasoning,
         )
-        self._check_input_size(call, request, capabilities)
+        estimated_tokens = self._check_input_size(call, request, capabilities)
         key = cache_key(backend=self._driver.name, model=model, request=request, json_schema=schema)
 
         request_seq = (
@@ -217,6 +217,8 @@ class ModelAdapter:
             model=response.model,
             prompt_id=request.prompt_id,
             latency_ms=round(response.latency_ms, 1),
+            # Logged side by side to calibrate the conservative estimate (ADR 0003).
+            estimated_input_tokens=estimated_tokens,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
             cache_hit=response.cache_hit,
@@ -228,12 +230,13 @@ class ModelAdapter:
 
     def _check_input_size(
         self, call: BackendCall, request: ModelRequest[Any], capabilities: Capabilities
-    ) -> None:
-        limit = capabilities.max_context_tokens
-        if limit is None:
-            return
+    ) -> int:
+        """Return the input token estimate; raise InputTooLarge if it cannot fit."""
         texts = [call.system, *request.text_parts, *(turn.text for turn in call.followups)]
         estimate = estimate_tokens(texts, len(request.images))
+        limit = capabilities.max_context_tokens
+        if limit is None:
+            return estimate
         budget = limit - request.max_output_tokens
         if estimate > budget:
             raise InputTooLarge(
@@ -241,6 +244,7 @@ class ModelAdapter:
                 f"(context {limit} minus output budget {request.max_output_tokens})",
                 details={"estimate": estimate, "context": limit},
             )
+        return estimate
 
     def _check_truncation(
         self, completion: Completion, request: ModelRequest[Any], capabilities: Capabilities

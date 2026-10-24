@@ -187,3 +187,30 @@ def test_accepts_keep_alive_durations(value: str) -> None:
 def test_rejects_bad_model_tuning(field: str, value: str) -> None:
     with pytest.raises(ValidationError):
         load(**{field: value})
+
+
+def test_repo_allowlist() -> None:
+    settings = load(gatekeeper_allowed_repos=" Octo/Play-Ground , other/repo ")
+    assert settings.allowed_repos == frozenset({"octo/play-ground", "other/repo"})
+    assert settings.repo_allowed("octo", "PLAY-GROUND")
+    assert not settings.repo_allowed("octo", "elsewhere")
+
+
+@pytest.mark.parametrize(("app_env", "allowed"), [("development", True), ("production", False)])
+def test_empty_allowlist_depends_on_environment(app_env: str, allowed: bool) -> None:
+    assert load(app_env=app_env).repo_allowed("any", "repo") is allowed
+
+
+@pytest.mark.parametrize("value", ["octo", "octo/repo/extra", "-bad/repo", "octo/repo,nope"])
+def test_rejects_malformed_allowlist(value: str) -> None:
+    with pytest.raises(ValidationError):
+        load(gatekeeper_allowed_repos=value)
+
+
+def test_p03_defaults() -> None:
+    settings = load()
+    assert settings.github_api_base_url == "https://api.github.com"
+    assert settings.webhook_max_body_bytes == 10_485_760
+    assert (settings.job_timeout_s, settings.worker_poll_interval_s) == (1800, 1)
+    assert (settings.job_lease_s, settings.job_max_attempts) == (120, 3)
+    assert (settings.diff_max_bytes, settings.pr_max_files) == (300_000, 300)

@@ -45,6 +45,7 @@ Every later feature asks a model questions. If each feature called Ollama or the
 - Ollama's default context is 4096 tokens on machines with < 24 GiB VRAM (32k at 24–48 GiB, 256k at ≥ 48 GiB, per the Ollama context-length docs). Longer prompts are silently cut.
 - The adapter therefore always sends `num_ctx = OLLAMA_NUM_CTX`. The default is **16384**, capped by the model's native `context_length` from `/api/show` (128K for `gemma4:e4b`). It fits typical PR diffs while keeping the KV cache affordable on CPU-only or low-VRAM machines. This dev machine has 15 GB RAM and only integrated graphics.
 - **Before sending**, the input is estimated at 3 UTF-8 bytes per token, plus 1024 per image and 64 overhead. If it exceeds `context − max_output_tokens`, `InputTooLarge` is raised.
+- The 3-bytes-per-token estimate is deliberately conservative. Every call logs `estimated_input_tokens` next to the backend's reported `input_tokens`, and the estimate will be calibrated from those logs (P03).
 - **After the call**, if the backend reports prompt tokens at or above that budget, the input may have been truncated. The adapter raises `InputTooLarge` instead of returning.
 - The Gemini API rejects oversize requests itself, so its limit is left unknown and the pre-check is skipped.
 

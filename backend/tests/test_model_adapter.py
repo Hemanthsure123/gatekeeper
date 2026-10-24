@@ -419,3 +419,24 @@ def test_fake_backend_reports_exhaustion_and_supports_callables() -> None:
         empty.complete(cast(BackendCall, None))
     assert DEFAULT_CAPABILITIES.max_context_tokens == 8192
     assert compose_system("", {}).startswith("Reply with")
+
+
+def test_logs_estimate_next_to_reported_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gatekeeper.models import adapter as adapter_module
+
+    seen: list[dict[str, Any]] = []
+
+    class Recorder:
+        def info(self, _event: str, **fields: Any) -> None:
+            seen.append(fields)
+
+        def warning(self, _event: str, **_fields: Any) -> None:
+            """Not under test."""
+
+    monkeypatch.setattr(adapter_module, "log", Recorder())
+    completion = Completion(text=GOOD.model_dump_json(), input_tokens=120, output_tokens=9)
+    adapter, _ = fake_adapter([completion])
+    adapter.generate(make_request(), allow_unaudited=True)
+    (fields,) = seen
+    assert fields["input_tokens"] == 120
+    assert fields["estimated_input_tokens"] > 0
