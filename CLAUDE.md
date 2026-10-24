@@ -51,12 +51,28 @@ g. **No secrets in code, logs, tests or fixtures.** Secrets live only in `.env` 
 - Tests never touch the network or the real `.env`. Use temp dirs and local fakes. Fixtures contain no real or realistic secrets.
 - `filterwarnings = error` is on: fix warnings, don't silence them.
 
+## Extension design principles (for the extension prompt)
+
+- **One purpose:** show the verdict for the PR or issue page currently open.
+- **Three surfaces only:**
+  - a compact inline badge;
+  - a popup about 320px wide with the verdict, up to three evidence bullets linking to the cited lines, an abstain note, and an "Open in dashboard" link;
+  - a minimal options page (server URL and token).
+- **Light build:** TypeScript and Manifest V3. No heavy UI framework (vanilla, or Preact at most). Small bundle, no remote code, minimal permissions.
+- **Visual rules:** system font stack, one accent colour, automatic light and dark mode, a 4/8px spacing scale and WCAG AA contrast. It must be keyboard accessible and respect reduced motion. Status is never shown by colour alone.
+- **Exactly three states:** not analysed, analysing, result. Errors are one plain line.
+- **Read-only:** it never posts comments, adds labels or closes anything.
+- **Neutral, non-accusatory wording:** "Looks valuable", "Needs a human look", "Likely low value". Never "spam".
+
 ## Definition of done
 
 `make lint typecheck test` passes, and the pre-commit hooks (including gitleaks) pass. The new code has tests and any new env keys are documented in `.env.example`. Architecture changes get an ADR in `docs/adr/`. The prompt's build log `docs/build-log/PNN.md` records decisions, assumptions and anything unverified. Commits are small and conventional (`feat:`, `fix:`, `chore:`, `docs:`, `ci:`, `test:`, `refactor:`).
 
 ## Working rules
 
+- **Build first.** Write unit tests alongside the code, not in a later pass.
+- **One `make check` per prompt**, at the end. Don't run manual or exhaustive verification after each part. Integration checks (services, migrations, end-to-end) happen at phase gates or when the prompt lists them.
+- **Short reports:** what was built, decisions and deviations, what's unverified, and at most three questions.
 - Verify library, API and tool details in current official docs, not from memory. Note what you checked.
 - Flag assumptions explicitly, in the build log and in your report.
 - **Ask first** before adding a dependency, changing an architecture decision or ADR, or running anything destructive (deleting data, `docker compose down -v`, force-push, rewriting history).
