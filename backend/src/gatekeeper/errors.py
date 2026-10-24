@@ -30,6 +30,7 @@ class ErrorCode(StrEnum):
     CAPABILITY_MISSING = "capability_missing"
     AUTHENTICATION_FAILED = "authentication_failed"
     PAYLOAD_TOO_LARGE = "payload_too_large"
+    JOB_TIMEOUT = "job_timeout"
 
 
 class GatekeeperError(Exception):
@@ -170,3 +171,10 @@ class PayloadTooLarge(_CodedError):  # noqa: N818 - matches the other error name
     """A request body exceeded the configured limit."""
 
     error_code = ErrorCode.PAYLOAD_TOO_LARGE
+
+
+class JobTimeout(_CodedError):  # noqa: N818 - matches the other error names
+    """A job ran past JOB_TIMEOUT_S. Retryable: the queue backs off, then marks it dead."""
+
+    error_code = ErrorCode.JOB_TIMEOUT
+    default_retryable = True

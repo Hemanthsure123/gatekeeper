@@ -38,6 +38,18 @@ class ItemKind(StrEnum):
     COMMENT = "comment"
 
 
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    DEAD = "dead"
+
+
+ACTIVE_JOB_STATUSES: Final = ("queued", "running")
+DELIVERY_STATUSES: Final = ("received", "queued", "ignored", "enqueue_failed")
+
+
 class AnalysisStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -223,3 +235,48 @@ class Event(CreatedAt, Base):
     schema_version: Mapped[str] = mapped_column(
         Text, default=EVENT_SCHEMA_VERSION, server_default=EVENT_SCHEMA_VERSION
     )
+
+
+class WebhookDelivery(Timestamps, Base):
+    """One GitHub webhook delivery, keyed by ``X-GitHub-Delivery`` for idempotency."""
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (CheckConstraint(_in("status", DELIVERY_STATUSES), name="status"),)
+
+    delivery_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    event: Mapped[str] = mapped_column(Text)
+    action: Mapped[str | None] = mapped_column(Text)
+    repo_full_name: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+
+
+class Job(UuidPrimaryKey, Timestamps, Base):
+    """A unit of background work in the Postgres-backed queue (see ADR 0004)."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        CheckConstraint(_in("status", [s.value for s in JobStatus]), name="status"),
+        CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        CheckConstraint("max_attempts >= 1", name="max_attempts_positive"),
+        Index("ix_jobs_status_run_after", "status", "run_after"),
+        Index(
+            "uq_jobs_dedupe_key_active",
+            "dedupe_key",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    kind: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]]
+    status: Mapped[str] = mapped_column(
+        Text, default=JobStatus.QUEUED.value, server_default=JobStatus.QUEUED.value
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    max_attempts: Mapped[int] = mapped_column(Integer)
+    run_after: Mapped[datetime] = mapped_column(server_default=func.now())
+    locked_by: Mapped[str | None] = mapped_column(Text)
+    locked_until: Mapped[datetime | None]
+    dedupe_key: Mapped[str | None] = mapped_column(Text)
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+    finished_at: Mapped[datetime | None]

@@ -22,7 +22,15 @@ def settings(database_url: str | None) -> Settings:
 
 
 def test_exactly_the_core_tables() -> None:
-    assert set(Base.metadata.tables) == {"repos", "items", "item_authors", "analyses", "events"}
+    assert set(Base.metadata.tables) == {
+        "repos",
+        "items",
+        "item_authors",
+        "analyses",
+        "events",
+        "webhook_deliveries",
+        "jobs",
+    }
 
 
 def test_constraint_names_follow_convention() -> None:
