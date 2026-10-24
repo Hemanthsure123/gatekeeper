@@ -15,11 +15,12 @@ CLEAN_PY := import pathlib, shutil; \
 	print('clean: removed', len(hits), 'paths')
 
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format typecheck test up down clean init-env env-check env-sync doctor \n	migrate migrate-down db-reset
+.PHONY: help setup check lint format typecheck test up down clean init-env env-check env-sync doctor \n	migrate migrate-down db-reset
 
 help:
 	$(info Usage: make <target>)
 	$(info setup      install Python and dev tools with uv, install git hooks)
+	$(info check      lint, typecheck and tests with coverage)
 	$(info lint       ruff lint and format check)
 	$(info format     apply ruff fixes and formatting)
 	$(info typecheck  mypy in strict mode)
@@ -39,6 +40,8 @@ help:
 setup:
 	$(UV) sync
 	$(UV) run pre-commit install
+
+check: lint typecheck test
 
 lint:
 	$(UV) run ruff check .

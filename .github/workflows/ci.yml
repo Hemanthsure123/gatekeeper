@@ -19,6 +19,25 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    services:
+      postgres:
+        # Keep in step with docker-compose.yml. Throwaway CI database: trust auth, no secret.
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: gatekeeper
+          POSTGRES_DB: gatekeeper
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gatekeeper -d gatekeeper"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # With CI set, integration tests fail (instead of skipping) if Postgres is missing.
+      APP_ENV: test
+      DATABASE_URL: postgresql://gatekeeper@localhost:5432/gatekeeper
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,7 +64,7 @@ jobs:
       - name: Typecheck
         run: make typecheck
 
-      - name: Test with coverage
+      - name: Test with coverage (unit + integration)
         run: make test
 
   secret-scan:

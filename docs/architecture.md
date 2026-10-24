@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **planned**. As of P00 only the infrastructure layer exists (Postgres, Redis and a local Ollama). Later prompts build the other layers and refine this page. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md).
+Status: **partly built**. As of P01 the infrastructure layer and the audit trail library exist. The other layers are planned. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md) and [ADR 0002](adr/0002-database-identity-and-audit.md).
 
 ```mermaid
 flowchart LR
@@ -46,3 +46,32 @@ These are enforced in code and tests from the first feature prompt onward. The f
 - Typed schemas sit at every model boundary.
 - Every step emits an audit event.
 - No harmful automatic actions.
+
+## Built in P01
+
+| Module | What it provides |
+| --- | --- |
+| `gatekeeper.config` | Typed `Settings` for every `.env.example` key. Secrets are `SecretStr`. Components call `settings.require(...)` for what they need. |
+| `gatekeeper.logging` | structlog over stdlib, JSON outside development, UTC timestamps, contextvars (`request_id`, `job_id`, `run_id`, `item_id`), and redaction before rendering. |
+| `gatekeeper.errors` | `GatekeeperError` with stable codes. Only `to_public_dict()` may leave the process. |
+| `gatekeeper.redaction` | The `Redactor` shared by logging and audit: secret values, GitHub tokens, bearer tokens, private keys and emails. |
+| `gatekeeper.db` | SQLAlchemy 2.1 models and session helpers. Alembic revision `0001` lives in `backend/alembic`. |
+| `gatekeeper.audit` | `AuditRecorder` / `Run` (append-only, hash-chained, fail-closed) and `AuditReader` (`get_events`, `verify_chain`). |
+
+### Schema (revision 0001)
+
+```mermaid
+erDiagram
+    repos ||--o{ items : has
+    items ||--o| item_authors : "identity (never read by review core)"
+    items ||--o{ analyses : has
+    items ||--o{ events : "audited by"
+    repos { uuid id bigint github_repo_id text owner text name jsonb config }
+    items { uuid id text kind text external_id jsonb content text content_hash text state }
+    item_authors { uuid item_id text login bigint github_user_id bool is_first_contribution }
+    analyses { uuid id uuid run_id text status jsonb result float confidence }
+    events { bigint id uuid run_id int seq text type text actor jsonb payload text chain_hash }
+```
+
+- **`items.content` is identity-free.** Identity lives only in `item_authors`, which the review core must never read.
+- **`events` is append-only.** A trigger rejects UPDATE, DELETE and TRUNCATE. Each run's events form a SHA-256 chain over redacted payloads. Writing fails closed: if an event cannot be recorded, the step stops.

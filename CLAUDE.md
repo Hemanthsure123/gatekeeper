@@ -29,11 +29,15 @@ g. **No secrets in code, logs, tests or fixtures.** Secrets live only in `.env` 
 | Command | Does |
 | --- | --- |
 | `make setup` | `uv sync` and install the pre-commit hooks |
+| `make check` | lint + typecheck + tests with coverage (run once per prompt) |
 | `make lint` / `make format` | ruff check and format check / auto-fix |
 | `make typecheck` | mypy, strict |
 | `make test` | pytest with coverage (fails under 85%) |
 | `make up` / `make down` | start (and wait for healthy) / stop Postgres 16 + Redis 7 |
 | `make init-env` | create `.env` from `.env.example`; never overwrites |
+| `make env-check` / `make env-sync` | SET/MISSING per key grouped by prompt / append missing keys empty; never print values |
+| `make migrate` / `make migrate-down` | Alembic upgrade head / downgrade one revision |
+| `make db-reset` | downgrade to base and upgrade to head; refuses unless `APP_ENV=development` |
 | `make doctor` | tool versions and Ollama status; never reads `.env` |
 | `make clean` | remove caches and build output |
 
@@ -42,13 +46,15 @@ g. **No secrets in code, logs, tests or fixtures.** Secrets live only in `.env` 
 - Python 3.13 (`.python-version`), managed by uv. Add dependencies with `uv add`; commit `uv.lock`.
 - ruff handles lint and format (line length 100). mypy runs in `strict` mode. Type everything and don't sprinkle `Any`.
 - Package code lives in `backend/src/gatekeeper/` and tests in `backend/tests/`. Tooling scripts live in `scripts/`, with tests in `scripts/tests/`.
+- Backend building blocks (P01): `gatekeeper.config.get_settings()` + `settings.require(...)`, `gatekeeper.logging`, `gatekeeper.errors`, `gatekeeper.db` (sync SQLAlchemy 2.1 + psycopg 3, Alembic in `backend/alembic`), `gatekeeper.audit` (`AuditRecorder`, `AuditReader`). See ADR 0002.
+- Schema changes only via new Alembic revisions; never edit an applied revision.
 - Use small, pure functions at the edges of I/O. Use typed models (dataclasses or pydantic) for anything crossing a boundary.
 - Recipes in the Makefile must stay shell-agnostic (sh and cmd.exe): call `uv`, `python` and `docker` only.
 
 ## Testing
 
 - Every module ships with tests in the same change. Cover the safety rules above with explicit tests: blindness, no auto-close of first PRs, schema validation and injection-as-data.
-- Tests never touch the network or the real `.env`. Use temp dirs and local fakes. Fixtures contain no real or realistic secrets.
+- Unit tests never touch the network or the real `.env`. Use temp dirs and local fakes. Database tests are marked `integration`, run in throwaway `gatekeeper_test_*` databases, skip locally when Postgres is down, and must pass in CI. Fixtures contain no real or realistic secrets.
 - `filterwarnings = error` is on: fix warnings, don't silence them.
 
 ## Extension design principles (for the extension prompt)
