@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **partly built**. As of P02 these exist: the infrastructure layer, the audit trail library, and the model adapter that the review core will use. The other layers are planned. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md), [ADR 0002](adr/0002-database-identity-and-audit.md) and [ADR 0003](adr/0003-model-adapter.md).
+Status: **partly built**. As of P03 these exist: the gateway, a Postgres-backed queue, a pipeline skeleton with stub steps, the audit trail and the model adapter. The review core, decision chain and action executor are still stubs or planned. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md), [ADR 0002](adr/0002-database-identity-and-audit.md), [ADR 0003](adr/0003-model-adapter.md) and [ADR 0004](adr/0004-intake-queue-and-identity-boundary.md).
 
 ```mermaid
 flowchart LR
@@ -94,3 +94,30 @@ flowchart LR
 | `gatekeeper.models` | `get_backend()` returns the `ModelAdapter`. It provides typed requests and responses, retries with backoff, native structured output plus validation and one repair attempt, `InputTooLarge` instead of silent truncation, a fail-open Redis cache, and audit events written by the adapter. |
 | `gatekeeper.models.testing` | `FakeBackend` and `fake_adapter()`. Every test uses these instead of a live model. |
 | `gatekeeper.prompts` | Versioned `PromptTemplate`s. Untrusted slots are wrapped in escaped `<untrusted_content>` blocks, and the system text must state `UNTRUSTED_CONTENT_RULE`. |
+
+## Built in P03: from event to audited analysis
+
+```mermaid
+flowchart LR
+    GH[GitHub webhook] -->|HMAC verified, size-limited| GW[Gateway<br/>/webhooks/github]
+    CLI[gatekeeper fetch-pr / enqueue-pr] --> Q
+    GW -->|delivery row + job, one transaction| Q[(jobs<br/>Postgres queue)]
+    Q -->|FOR UPDATE SKIP LOCKED, lease| W[Worker]
+    W --> F[GitHub client<br/>read-only]
+    F --> N[normalize]
+    N -->|ItemContent| I[(items)]
+    N -->|AuthorInfo| A[(item_authors)<br/>gatekeeper.identity only]
+    W --> P[Pipeline: intake, signals, review, decision<br/>stubs, see ItemView only]
+    P -.-> AT[(events)]
+    P --> AN[(analyses)]
+```
+
+| Module | What it provides |
+| --- | --- |
+| `gatekeeper.github` | Read-only REST client (token or App auth, pagination, rate limits) and `normalize_pull`, the contributor-blind split. |
+| `gatekeeper.api` | FastAPI gateway: signature-checked, idempotent webhook intake, `/healthz` and `/readyz`. |
+| `gatekeeper.queue` | Postgres job queue with leases, heartbeats, retry, dead and dedupe, plus the worker loop. |
+| `gatekeeper.pipeline` | `ItemView`, `PipelineContext`, `Step`, `Pipeline`, the stub steps and the `process_pr` job. |
+| `gatekeeper.identity` | The only reader and writer of `item_authors`. |
+| `gatekeeper.review_core` | Empty for now. An AST test forbids identity imports here and in the steps. |
+| `gatekeeper.cli` | `gatekeeper fetch-pr`, `enqueue-pr`, `audit` and `jobs`. |

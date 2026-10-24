@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- P03:
+  - read-only GitHub client (token or GitHub App);
+  - contributor-blind PR normalisation;
+  - FastAPI webhook gateway (`make api`);
+  - Postgres job queue and worker (`make worker`);
+  - pipeline skeleton with stub steps and the `process_pr` job;
+  - `gatekeeper` CLI (`fetch-pr`, `enqueue-pr`, `audit`, `jobs`);
+  - `make relay`.
+- Migration 0003: `webhook_deliveries` and `jobs`.
+- Settings: GATEKEEPER_ALLOWED_REPOS, GITHUB_API_BASE_URL, WEBHOOK_MAX_BODY_BYTES, JOB_*, WORKER_POLL_INTERVAL_S, DIFF_MAX_BYTES, PR_MAX_FILES.
+- `make model-check --require-vision`; a plain vision failure is now a warning.
+- ADR 0004.
 - P02 model adapter (`gatekeeper.models`):
   - Ollama backend and optional Gemini API backend (`--extra gemini`);
   - typed requests and responses, retries, structured output with one repair attempt, explicit context size, fail-open Redis cache;
