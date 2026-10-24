@@ -39,6 +39,7 @@ help:
 	$(info model-check  check the model backend; ARGS=--vision also tests image input)
 	$(info api          run the webhook gateway on 127.0.0.1:8000)
 	$(info worker       run one queue worker; Ctrl+C finishes the current job, then stops)
+	$(info relay        forward webhooks from WEBHOOK_PROXY_URL to the local gateway, needs Node)
 	@exit 0
 
 setup:
@@ -99,3 +100,6 @@ api:
 
 worker:
 	$(UV) run python -m gatekeeper.worker
+
+relay:
+	$(UV) run python scripts/relay.py $(ARGS)

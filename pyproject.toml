@@ -25,6 +25,9 @@ gemini = [
     "google-genai>=2.33.0",
 ]
 
+[project.scripts]
+gatekeeper = "gatekeeper.cli:main"
+
 [dependency-groups]
 dev = [
     "fakeredis>=2.40.0",
