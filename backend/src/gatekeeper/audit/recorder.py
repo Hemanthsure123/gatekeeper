@@ -21,7 +21,8 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session, sessionmaker
 
 from gatekeeper.audit.hashing import canonical_json, chain_hash, sha256_hex
-from gatekeeper.audit.types import Actor, EventType
+from gatekeeper.audit.types import SCHEMA_VERSION, Actor, EventType
+from gatekeeper.db.base import utcnow
 from gatekeeper.db.models import Event
 from gatekeeper.errors import AuditError
 from gatekeeper.redaction import Redactor
@@ -131,8 +132,21 @@ class Run:
             self._failed = True
             raise AuditError("audit payload is not JSON-serializable", details=context) from exc
 
-        link = chain_hash(self._previous_chain, self.run_id, seq, event_type.value, digest)
+        # Assigned here (not by the database) so the hashed value is exactly the stored one.
+        created_at = utcnow()
         try:
+            link = chain_hash(
+                self._previous_chain,
+                run_id=self.run_id,
+                seq=seq,
+                event_type=event_type.value,
+                payload_digest=digest,
+                actor=actor.value,
+                parent_seq=parent_seq,
+                item_id=self.item_id,
+                schema_version=SCHEMA_VERSION,
+                created_at=created_at,
+            )
             event = self._recorder._insert(
                 Event(
                     run_id=self.run_id,
@@ -144,6 +158,8 @@ class Run:
                     payload=stored_payload,
                     payload_hash=digest,
                     chain_hash=link,
+                    schema_version=SCHEMA_VERSION,
+                    created_at=created_at,
                 )
             )
         except Exception as exc:  # fail closed on *any* write problem

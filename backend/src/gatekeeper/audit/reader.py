@@ -40,7 +40,18 @@ def verify_events(run_id: UUID, events: Sequence[StoredEvent]) -> ChainVerificat
             )
         if payload_hash(event.payload) != event.payload_hash:
             return ChainVerification(False, event.seq, "payload_hash mismatch", expected_seq - 1)
-        link = chain_hash(previous, run_id, event.seq, event.type, event.payload_hash)
+        link = chain_hash(
+            previous,
+            run_id=run_id,
+            seq=event.seq,
+            event_type=event.type,
+            payload_digest=event.payload_hash,
+            actor=event.actor,
+            parent_seq=event.parent_seq,
+            item_id=event.item_id,
+            schema_version=event.schema_version,
+            created_at=event.created_at,
+        )
         if link != event.chain_hash:
             return ChainVerification(False, event.seq, "chain_hash mismatch", expected_seq - 1)
         previous = link
