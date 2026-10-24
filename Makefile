@@ -15,7 +15,8 @@ CLEAN_PY := import pathlib, shutil; \
 	print('clean: removed', len(hits), 'paths')
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check lint format typecheck test up down clean init-env env-check env-sync doctor \n	migrate migrate-down db-reset
+.PHONY: help setup check lint format typecheck test up down clean init-env env-check env-sync \
+	doctor migrate migrate-down db-reset model-check
 
 help:
 	$(info Usage: make <target>)
@@ -35,6 +36,7 @@ help:
 	$(info migrate      apply all database migrations)
 	$(info migrate-down roll back the latest migration)
 	$(info db-reset     drop and re-create the schema, development only)
+	$(info model-check  check the model backend; ARGS=--vision also tests image input)
 	@exit 0
 
 setup:
@@ -86,3 +88,6 @@ migrate-down:
 
 db-reset:
 	$(UV) run python scripts/db_reset.py
+
+model-check:
+	$(UV) run python -m gatekeeper.models.check $(ARGS)

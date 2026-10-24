@@ -37,6 +37,7 @@ from gatekeeper.models.types import (
     Capabilities,
     ModelRequest,
     ModelResponse,
+    ModelRole,
     Usage,
 )
 
@@ -138,6 +139,9 @@ class ModelAdapter:
     @property
     def backend_name(self) -> str:
         return self._driver.name
+
+    def model_name(self, role: ModelRole = ModelRole.PRIMARY) -> str:
+        return self._driver.model_for(role)
 
     def add_validator(self, validator: RequestValidator) -> None:
         """Register a pre-send check. It may raise PolicyViolation to block the call."""
