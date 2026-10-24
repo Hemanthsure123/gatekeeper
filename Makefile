@@ -15,7 +15,7 @@ CLEAN_PY := import pathlib, shutil; \
 	print('clean: removed', len(hits), 'paths')
 
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format typecheck test up down clean init-env doctor
+.PHONY: help setup lint format typecheck test up down clean init-env env-check env-sync doctor
 
 help:
 	$(info Usage: make <target>)
@@ -28,6 +28,8 @@ help:
 	$(info down       stop local services, keeping data volumes)
 	$(info clean      remove caches and build output)
 	$(info init-env   create .env from .env.example, never overwrites)
+	$(info env-check  show which .env keys are SET or MISSING, by prompt; never prints values)
+	$(info env-sync   append keys missing from .env with empty values)
 	$(info doctor     report tool versions and Ollama status)
 	@exit 0
 
@@ -60,6 +62,12 @@ clean:
 
 init-env:
 	$(UV) run --no-project python scripts/init_env.py
+
+env-check:
+	$(UV) run --no-project python scripts/env_tools.py check
+
+env-sync:
+	$(UV) run --no-project python scripts/env_tools.py sync
 
 doctor:
 	$(UV) run --no-project python scripts/doctor.py
