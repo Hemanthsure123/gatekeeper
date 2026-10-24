@@ -7,7 +7,10 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20.1",
+    "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.16.1",
+    "sqlalchemy>=2.1.6,<2.2",
     "structlog>=26.1.0",
 ]
 
@@ -54,11 +57,12 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "S105", "S106"] # asserts and obviously fake credentials
+"backend/alembic/versions/*" = ["N999"]  # revision files start with their number
 
 [tool.mypy]
 strict = true
 python_version = "3.13"
-files = ["backend/src", "backend/tests", "scripts"]
+files = ["backend/src", "backend/tests", "backend/alembic/env.py", "scripts"]
 mypy_path = "backend/src,scripts"
 explicit_package_bases = true
 warn_unreachable = true
@@ -70,6 +74,12 @@ testpaths = ["backend/tests", "scripts/tests"]
 pythonpath = ["scripts"]
 addopts = ["-ra", "--import-mode=importlib", "--cov", "--cov-report=term-missing"]
 filterwarnings = ["error"]
+markers = [
+    "integration: needs Postgres; skipped locally when unreachable, required in CI",
+]
+
+[tool.alembic]
+script_location = "%(here)s/backend/alembic"
 
 [tool.coverage.run]
 branch = true
