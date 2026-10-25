@@ -70,6 +70,8 @@ NAMED_LIKE_SECRET_BUT_NOT: Final = frozenset(
         "GEMINI_KEY_COOLDOWN_MAX_S",
         "GEMINI_MAX_WAIT_FOR_KEY_S",
         "ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL",
+        "REVIEW_MAX_OUTPUT_TOKENS",
+        "REVIEW_DIFF_TOKEN_BUDGET",
     }
 )
 _KEY = re.compile(r"[A-Z][A-Z0-9_]*")
