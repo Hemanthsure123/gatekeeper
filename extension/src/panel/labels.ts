@@ -1,4 +1,6 @@
 // Fixed, neutral wording. Every status pairs an icon with text (never colour alone).
+// Type-only imports, so the wording test in extension/tests can load this module.
+import type { Gate, GateFilter, StepName, StepStatus } from "./derive";
 import type { FileState, Verdict } from "../shared/types";
 
 export const VERDICT: Record<Verdict, { text: string; icon: string; tone: string }> = {
@@ -7,23 +9,67 @@ export const VERDICT: Record<Verdict, { text: string; icon: string; tone: string
   likely_low_value: { text: "Likely low value", icon: "▽", tone: "warn" },
 };
 
-export const STAGE: Record<FileState, { text: string; icon: string }> = {
-  listed: { text: "listed", icon: "○" },
-  signalled: { text: "signalled", icon: "◔" },
-  in_context: { text: "in context", icon: "◑" },
-  omitted: { text: "omitted", icon: "⊘" },
-  cited: { text: "cited", icon: "◕" },
-  dropped: { text: "dropped", icon: "✕" },
-  verified: { text: "verified", icon: "✓" },
+/** Per-file stage: a short chip for tree rows and a sentence for the file details. */
+export const STAGE: Record<FileState, { text: string; icon: string; hint: string }> = {
+  listed: { text: "Listed", icon: "○", hint: "Listed in the change; not checked yet." },
+  signalled: { text: "Checked", icon: "◔", hint: "File-level rules ran on it." },
+  in_context: { text: "Read", icon: "◑", hint: "Its diff was part of the model's input." },
+  omitted: { text: "Left out", icon: "⊘", hint: "Left out of the model's input, so nothing in it could be cited." },
+  cited: { text: "Cited", icon: "◕", hint: "The model cited lines in it; the check has not run yet." },
+  dropped: { text: "Dropped", icon: "✕", hint: "A citation did not match the diff, so it was dropped." },
+  verified: { text: "Verified", icon: "✓", hint: "At least one citation matched the diff exactly." },
+};
+
+/** The five gates, as labelled in the file details and the pipeline view. */
+export const GATE_TEXT: Record<Gate, string> = {
+  listed: "Listed",
+  checked: "Checked",
+  read: "Read",
+  cited: "Cited",
+  verified: "Verified",
+};
+
+/** Completes "Showing N files …" above the tree when a gate filter is on. */
+export const GATE_FILTER_TEXT: Record<GateFilter, string> = {
+  listed: "listed in the change",
+  checked: "checked by file-level rules",
+  read: "read by the model",
+  left_out: "left out of the model's input",
+  cited: "cited by the model",
+  verified: "with a verified citation",
+  dropped: "with a dropped citation",
+};
+
+/** Where the model runs. API mode sends the scrubbed change to Google; never say local. */
+export const BACKEND: Record<string, string> = {
+  ollama: "Local model (Ollama)",
+  gemini_api: "Hosted model (Gemini API)",
+};
+
+/** Mirrors gatekeeper.pipeline.core.STEP_LABELS. */
+export const STEP_TEXT: Record<StepName, string> = {
+  intake: "Reading the change",
+  signals: "Computing signals",
+  review: "Asking the model",
+  verify: "Checking every citation",
+  decision: "Deciding",
+};
+
+export const STEP_STATUS: Record<StepStatus, { text: string; icon: string }> = {
+  pending: { text: "Waiting", icon: "○" },
+  running: { text: "Running", icon: "◌" },
+  done: { text: "Done", icon: "✓" },
+  failed: { text: "Failed", icon: "⚠" },
+  skipped: { text: "Skipped", icon: "–" },
 };
 
 export const FILE_STATUS: Record<string, { text: string; glyph: string }> = {
-  added: { text: "added", glyph: "+" },
-  modified: { text: "modified", glyph: "•" },
-  changed: { text: "changed", glyph: "•" },
-  removed: { text: "removed", glyph: "−" },
-  renamed: { text: "renamed", glyph: "→" },
-  copied: { text: "copied", glyph: "⧉" },
+  added: { text: "Added", glyph: "+" },
+  modified: { text: "Modified", glyph: "•" },
+  changed: { text: "Changed", glyph: "•" },
+  removed: { text: "Removed", glyph: "−" },
+  renamed: { text: "Renamed", glyph: "→" },
+  copied: { text: "Copied", glyph: "⧉" },
 };
 
 export const EVENT_ICON: Record<string, string> = {
@@ -62,6 +108,25 @@ export function abstainText(reason: string | null): string {
   return reason ? (ABSTAIN[reason] ?? reason.replaceAll("_", " ")) : "";
 }
 
+export const DOWNGRADE: Record<string, string> = {
+  no_verified_concern:
+    "No verified concern or high-severity signal supports a low-value verdict, so a person should decide.",
+};
+
+export function downgradeText(reason: string | null): string {
+  return reason ? (DOWNGRADE[reason] ?? reason.replaceAll("_", " ")) : "";
+}
+
+/** Whether the pull request description matches the change, as judged by the model. */
+export const CLAIM_MATCH: Record<string, string> = {
+  matches: "Matches the change",
+  partial: "Partly matches the change",
+  mismatch: "Does not match the change",
+  unclear: "Unclear",
+};
+
+export const SEVERITY: Record<string, string> = { low: "Low", medium: "Medium", high: "High" };
+
 /** One plain line for an error code from a failed job or analysis. */
 const ERRORS: Record<string, string> = {
   private_repo_hosted_model_blocked:
@@ -87,4 +152,10 @@ export const DIRECTION_ICON: Record<string, string> = {
   positive: "+",
   negative: "−",
   neutral: "·",
+};
+
+export const DIRECTION_TEXT: Record<string, string> = {
+  positive: "Positive",
+  negative: "Negative",
+  neutral: "Neutral",
 };

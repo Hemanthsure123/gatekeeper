@@ -1,184 +1,258 @@
-// The repository tree: changed files (default) or all files, a filter, collapsible
-// folders with a count of changed descendants, and a stage indicator per changed file.
-import type { FileState, PrFile, TreeEntry } from "../shared/types";
+// The repository tree: changed files (default) or all files, a text filter, a gate
+// filter from the pipeline view, and compact folders. Each changed file shows the five
+// gates it passed, filled in live as the backend works; the folder holding the file
+// under review is marked "Now". Rows are cached by a signature, so a live event only
+// rebuilds the rows it changed. The selected file opens its details in place.
+import type { FileState, PrFile, PrView, TreeEntry } from "../shared/types";
+import { ancestors, buildNodes, entriesFromFiles, trail, type TreeNode } from "./derive";
 import { h, preserveFocus } from "./dom";
+import { icon } from "./icons";
 import { FILE_STATUS, STAGE } from "./labels";
 import type { State } from "./store";
-
-export interface TreeNode {
-  path: string;
-  name: string;
-  type: "tree" | "blob" | "commit";
-  status?: string;
-  children: TreeNode[];
-  changed: number;
-}
 
 export interface TreeHandlers {
   onFolder: (path: string) => void;
   onFile: (path: string) => void;
+  /** The details shown under the selected file. */
+  details: (path: string) => HTMLElement | null;
 }
 
-export function ancestors(path: string): string[] {
-  const parts = path.split("/").slice(0, -1);
-  return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+interface Row {
+  sig: string;
+  li: HTMLLIElement;
 }
 
-/** Entries from the PR's own file list, when the repo tree is unavailable. */
-export function entriesFromFiles(files: PrFile[]): TreeEntry[] {
-  const out = new Map<string, TreeEntry>();
-  for (const file of files) {
-    for (const folder of ancestors(file.path)) out.set(folder, { path: folder, type: "tree" });
-    out.set(file.path, { path: file.path, type: "blob", status: file.status });
-  }
-  return [...out.values()];
+const same = (a: readonly unknown[], b: readonly unknown[]): boolean =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
+
+let fallback: { pr: PrView | null; entries: TreeEntry[] } = { pr: null, entries: [] };
+let nodesKey: unknown[] = [];
+let nodes: TreeNode[] = [];
+let rowsKey: unknown[] = [];
+let rows = new Map<string, Row>();
+let filesFor: PrView | null = null;
+let files = new Map<string, PrFile>();
+let followed: string | null = null;
+
+export function treeEntries(state: State): TreeEntry[] {
+  if (state.tree) return state.tree.entries;
+  if (fallback.pr !== state.pr) fallback = { pr: state.pr, entries: state.pr ? entriesFromFiles(state.pr.files) : [] };
+  return fallback.entries;
 }
 
-export function buildNodes(entries: TreeEntry[], showAll: boolean, filter: string): TreeNode[] {
-  const changed = entries.filter((e) => e.status);
-  const keep = new Set<string>();
-  const needle = filter.trim().toLowerCase();
-  const pool = showAll ? entries : changed;
-  for (const entry of pool) {
-    if (needle && (entry.type === "tree" || !entry.path.toLowerCase().includes(needle))) continue;
-    keep.add(entry.path);
-    for (const folder of ancestors(entry.path)) keep.add(folder);
+function fileOf(pr: PrView | null, path: string): PrFile | undefined {
+  if (filesFor !== pr) {
+    filesFor = pr;
+    files = new Map((pr?.files ?? []).map((f) => [f.path, f]));
   }
-  if (showAll && !needle) for (const entry of entries) keep.add(entry.path);
-
-  const nodes = new Map<string, TreeNode>();
-  for (const entry of entries) {
-    if (!keep.has(entry.path)) continue;
-    nodes.set(entry.path, {
-      path: entry.path,
-      name: entry.path.split("/").pop() ?? entry.path,
-      type: entry.type,
-      status: entry.status,
-      children: [],
-      changed: 0,
-    });
-  }
-  for (const path of keep) {
-    if (!nodes.has(path)) {
-      nodes.set(path, { path, name: path.split("/").pop() ?? path, type: "tree", children: [], changed: 0 });
-    }
-  }
-  const roots: TreeNode[] = [];
-  for (const node of nodes.values()) {
-    const parent = ancestors(node.path).pop();
-    const owner = parent !== undefined ? nodes.get(parent) : undefined;
-    (owner ? owner.children : roots).push(node);
-  }
-  const finish = (list: TreeNode[]): number => {
-    list.sort((a, b) =>
-      a.type === "tree" && b.type !== "tree"
-        ? -1
-        : a.type !== "tree" && b.type === "tree"
-          ? 1
-          : a.name.localeCompare(b.name),
-    );
-    let count = 0;
-    for (const node of list) {
-      node.changed = node.type === "tree" ? finish(node.children) : node.status ? 1 : 0;
-      count += node.changed;
-    }
-    return count;
-  };
-  finish(roots);
-  return roots;
+  return files.get(path);
 }
 
-/** Folders that start expanded: every ancestor of a changed file. */
-export function initialExpanded(entries: TreeEntry[]): Set<string> {
-  const out = new Set<string>();
-  for (const entry of entries) if (entry.status) for (const f of ancestors(entry.path)) out.add(f);
-  return out;
-}
-
-function stageChip(state: FileState | undefined): HTMLElement {
-  const stage = STAGE[state ?? "listed"];
+/** The five gate segments for one file. `live` marks the next gate as in progress. */
+export function rail(state: FileState, live = false): HTMLElement {
+  const segments = trail(state);
+  const next = segments.indexOf("todo");
   return h(
     "span",
-    { class: `stage stage-${state ?? "listed"}` },
-    h("span", { "aria-hidden": "true" }, stage.icon),
-    ` ${stage.text}`,
+    { class: "rail", "aria-hidden": "true" },
+    ...segments.map((segment, i) => h("span", { class: `seg seg-${segment}${live && i === next ? " seg-live" : ""}` })),
+  );
+}
+
+export function stageChip(state: FileState): HTMLElement {
+  const stage = STAGE[state];
+  return h("span", { class: `stage stage-${state}` }, h("span", { "aria-hidden": "true" }, stage.icon), ` ${stage.text}`);
+}
+
+function highlight(name: string, needle: string): Array<Node | string> {
+  const at = needle ? name.toLowerCase().indexOf(needle) : -1;
+  if (at < 0) return [name];
+  return [name.slice(0, at), h("mark", null, name.slice(at, at + needle.length)), name.slice(at + needle.length)];
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function folderRow(node: TreeNode, depth: number, open: boolean, live: boolean, needle: string): HTMLButtonElement {
+  return h(
+    "button",
+    {
+      type: "button",
+      class: `row folder${open ? " open" : ""}${live ? " live" : ""}`,
+      "aria-label": `${node.path}, folder${node.changed ? `, ${plural(node.changed, "changed file")}` : ""}${
+        live ? ", the review is here now" : ""
+      }`,
+      title: node.path,
+      dataset: { key: node.path, path: node.path, folder: "1" },
+      style: `--depth:${depth}`,
+    },
+    h("span", { class: "twisty" }, icon("chevron")),
+    icon("folder", "kind-icon"),
+    h("span", { class: "name" }, ...highlight(node.name, needle)),
+    live ? h("span", { class: "now-pill", "aria-hidden": "true" }, "Now") : null,
+    node.changed ? h("span", { class: "badge", "aria-hidden": "true" }, String(node.changed)) : null,
+  );
+}
+
+function fileRow(node: TreeNode, depth: number, state: State, needle: string): HTMLButtonElement {
+  const changed = Boolean(node.status);
+  const base = { type: "button", title: node.path, dataset: { key: node.path, path: node.path, folder: "0" }, style: `--depth:${depth}` };
+  if (!changed) {
+    return h(
+      "button",
+      { ...base, class: `row file${state.selected === node.path ? " selected" : ""}`, "aria-label": `${node.path}, unchanged` },
+      h("span", { class: "twisty" }),
+      icon("file", "kind-icon"),
+      h("span", { class: "name" }, ...highlight(node.name, needle)),
+    );
+  }
+  const file = fileOf(state.pr, node.path);
+  const status = FILE_STATUS[node.status ?? "modified"] ?? FILE_STATUS.modified;
+  const fileState = state.fileStates[node.path] ?? "listed";
+  const current = state.view === "analysing" && state.currentPath === node.path;
+  const finished = state.view === "result";
+  const tracked = state.view !== "not_analysed";
+  const signals = finished ? (file?.signals.length ?? 0) : 0;
+  const citations = finished ? (file?.evidence.length ?? 0) : 0;
+  const classes = [
+    "row file changed",
+    state.selected === node.path ? "selected" : "",
+    current ? "current" : "",
+    state.bumped.has(node.path) ? "bump" : "",
+  ].join(" ");
+  return h(
+    "button",
+    {
+      ...base,
+      class: classes,
+      "aria-label":
+        `${node.path}, ${status.text}` +
+        (file ? `, ${file.additions} added and ${file.deletions} removed lines` : "") +
+        (tracked ? `, ${STAGE[fileState].text}` : "") +
+        (current ? ", under review now" : ""),
+    },
+    h(
+      "span",
+      { class: "row-main" },
+      h("span", { class: `kind kind-${node.status ?? "modified"}`, "aria-hidden": "true" }, status.glyph),
+      h("span", { class: "name" }, ...highlight(node.name, needle)),
+      current ? h("span", { class: "now-pill", "aria-hidden": "true" }, "Now") : null,
+      file && file.additions + file.deletions > 0
+        ? h(
+            "span",
+            { class: "diffstat", "aria-hidden": "true" },
+            h("span", { class: "add" }, `+${file.additions}`),
+            h("span", { class: "del" }, `−${file.deletions}`),
+          )
+        : null,
+    ),
+    tracked
+      ? h(
+          "span",
+          { class: "row-sub", "aria-hidden": "true" },
+          rail(fileState, current),
+          stageChip(fileState),
+          signals ? h("span", { class: "fact" }, plural(signals, "signal")) : null,
+          citations ? h("span", { class: "fact" }, plural(citations, "citation")) : null,
+        )
+      : null,
   );
 }
 
 export function renderTree(root: HTMLElement, state: State, handlers: TreeHandlers): void {
-  const entries = state.tree?.entries ?? (state.pr ? entriesFromFiles(state.pr.files) : []);
-  const nodes = buildNodes(entries, state.showAll, state.filter);
-  const filtering = state.filter.trim() !== "";
+  const entries = treeEntries(state);
+  const key = [entries, state.showAll, state.filter, state.gate, state.gate ? state.fileStates : null];
+  if (!same(key, nodesKey)) {
+    nodesKey = key;
+    nodes = buildNodes(entries, { showAll: state.showAll, filter: state.filter, gate: state.gate, states: state.fileStates });
+  }
+  if (!same([entries, state.pr], rowsKey)) {
+    rowsKey = [entries, state.pr];
+    rows = new Map();
+  }
+  const needle = state.filter.trim().toLowerCase();
+  const filtering = needle !== "" || state.gate !== null;
+  const livePath = state.view === "analysing" ? state.currentPath : null;
+
   preserveFocus(root, () => {
-    root.replaceChildren();
     if (!nodes.length) {
-      root.append(h("p", { class: "muted" }, filtering ? "No files match the filter." : "No files."));
+      root.replaceChildren(
+        h("p", { class: "tree-empty" }, filtering ? "No files match. Clear the filter to see every file." : "No files."),
+      );
       return;
     }
-    const list = h("ul", { role: "tree", "aria-label": "Repository files", class: "tree" });
-    const walk = (items: TreeNode[], depth: number): void => {
-      for (const node of items) {
+    let list = root.querySelector<HTMLUListElement>(":scope > ul.tree");
+    if (!list) {
+      list = h("ul", { role: "tree", "aria-label": "Repository files", class: "tree" });
+      root.replaceChildren(list);
+    }
+    const items: HTMLLIElement[] = [];
+    const next = new Map<string, Row>();
+    const walk = (level: TreeNode[], depth: number): void => {
+      for (const node of level) {
         const folder = node.type === "tree";
         const open = folder && (filtering || state.expanded.has(node.path));
-        const fileState = state.fileStates[node.path];
-        const status = node.status ? (FILE_STATUS[node.status] ?? FILE_STATUS.modified) : null;
-        const label = folder
-          ? `${node.path}, folder${node.changed ? `, ${node.changed} changed` : ""}`
-          : `${node.path}, ${status ? status.text : "unchanged"}${
-              status ? `, ${STAGE[fileState ?? "listed"].text}` : ""
-            }`;
-        const classes = [
-          "row",
-          folder ? "folder" : "file",
-          node.status ? "changed" : "",
-          state.selected === node.path ? "selected" : "",
-          state.currentPath === node.path && state.view === "analysing" ? "current" : "",
-          state.bumped.has(node.path) ? "bump" : "",
-        ].join(" ");
-        const button = h(
-          "button",
-          {
-            type: "button",
-            class: classes,
-            "aria-label": label,
-            title: node.path,
-            dataset: { key: node.path, path: node.path, folder: folder ? "1" : "0" },
-            style: `--depth:${depth}`,
-            on: {
-              click: () => (folder ? handlers.onFolder(node.path) : handlers.onFile(node.path)),
-            },
-          },
-          folder
-            ? h("span", { class: "twisty", "aria-hidden": "true" }, open ? "▾" : "▸")
-            : h(
-                "span",
-                { class: `glyph ${node.status ?? "unchanged"}`, "aria-hidden": "true" },
-                status ? status.glyph : " ",
-              ),
-          h("span", { class: "name" }, node.name),
-          folder && node.changed
-            ? h("span", { class: "badge", "aria-hidden": "true" }, String(node.changed))
-            : null,
-          !folder && status ? stageChip(fileState) : null,
-        );
-        list.append(
-          h(
+        const selected = state.selected === node.path;
+        const live = folder && livePath !== null && livePath.startsWith(`${node.path}/`);
+        const sig = [
+          node.name,
+          depth,
+          open,
+          live,
+          node.changed,
+          needle,
+          state.view,
+          folder ? "" : (state.fileStates[node.path] ?? ""),
+          state.currentPath === node.path,
+          state.bumped.has(node.path),
+        ].join("|");
+        const cached = rows.get(node.path);
+        let li: HTMLLIElement;
+        if (cached && cached.sig === sig && !selected) {
+          li = cached.li;
+        } else {
+          li = h(
             "li",
             {
               role: "treeitem",
               "aria-level": String(depth + 1),
               "aria-expanded": folder ? String(open) : undefined,
-              "aria-selected": String(state.selected === node.path),
+              "aria-selected": String(selected),
             },
-            button,
-          ),
-        );
+            folder ? folderRow(node, depth, open, live, needle) : fileRow(node, depth, state, needle),
+          );
+          li.querySelector("button")!.addEventListener("click", () =>
+            folder ? handlers.onFolder(node.path) : handlers.onFile(node.path),
+          );
+          if (selected && !folder) {
+            const details = handlers.details(node.path);
+            if (details) li.append(details);
+          }
+        }
+        if (!selected) next.set(node.path, { sig, li });
+        items.push(li);
         if (open) walk(node.children, depth + 1);
       }
     };
     walk(nodes, 0);
-    root.append(list);
+    rows = next;
+    list.replaceChildren(...items);
   });
+
+  const follow = state.view === "analysing" && state.followLive ? state.currentPath : null;
+  if (follow && follow !== followed) revealRow(root, follow);
+  followed = follow;
+}
+
+/** Scroll the tree's own box (never the page) so the row for `path` is visible. */
+export function revealRow(root: HTMLElement, path: string, toTop = false): void {
+  const row = root.querySelector<HTMLElement>(`[data-key="${CSS.escape(path)}"]`);
+  if (!row) return;
+  const box = root.getBoundingClientRect();
+  const rect = row.getBoundingClientRect();
+  if (toTop || rect.top < box.top) root.scrollTop += rect.top - box.top - 8;
+  else if (rect.bottom > box.bottom) root.scrollTop += rect.bottom - box.bottom + 8;
 }
 
 /** Arrow keys move between rows; Left/Right collapse and expand folders (without
@@ -191,20 +265,24 @@ export function treeKeys(
   root.addEventListener("keydown", (event) => {
     const target = event.target as HTMLElement;
     if (!target.matches("button.row")) return;
-    const rows = [...root.querySelectorAll<HTMLButtonElement>("button.row")];
-    const index = rows.indexOf(target as HTMLButtonElement);
+    const all = [...root.querySelectorAll<HTMLButtonElement>("button.row")];
+    const index = all.indexOf(target as HTMLButtonElement);
     const path = target.dataset.path ?? "";
     const folder = target.dataset.folder === "1";
-    if (event.key === "ArrowDown") rows[index + 1]?.focus();
-    else if (event.key === "ArrowUp") rows[index - 1]?.focus();
-    else if (event.key === "Home") rows[0]?.focus();
-    else if (event.key === "End") rows[rows.length - 1]?.focus();
+    if (event.key === "ArrowDown") all[index + 1]?.focus();
+    else if (event.key === "ArrowUp") all[index - 1]?.focus();
+    else if (event.key === "Home") all[0]?.focus();
+    else if (event.key === "End") all[all.length - 1]?.focus();
     else if (event.key === "ArrowRight" && folder && !isOpen(path)) toggle(path);
     else if (event.key === "ArrowLeft") {
       if (folder && isOpen(path)) toggle(path);
       else {
-        const parent = ancestors(path).pop();
-        rows.find((r) => r.dataset.path === parent)?.focus();
+        // A compact folder row holds several levels, so walk up to the nearest row.
+        const parent = ancestors(path)
+          .reverse()
+          .map((p) => all.find((r) => r.dataset.path === p))
+          .find(Boolean);
+        parent?.focus();
       }
     } else return;
     event.preventDefault();

@@ -61,6 +61,31 @@ export function formatTime(iso: string): string {
     : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+/** "120 ms", "4.2 s" or "2 min 5 s". */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "–";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+  const seconds = Math.round(ms / 1000);
+  return `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+}
+
+/** Time since the run started, as "+4.2 s". */
+export function formatOffset(iso: string, start: string | null): string {
+  const ms = start ? Date.parse(iso) - Date.parse(start) : Number.NaN;
+  return Number.isFinite(ms) && ms >= 0 ? `+${formatDuration(ms)}` : formatTime(iso);
+}
+
+/** 1234 -> "1,234"; 12345 -> "12.3k". */
+export function formatCount(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "–";
+  return value >= 10000 ? `${(value / 1000).toFixed(1)}k` : value.toLocaleString("en-US");
+}
+
+export function pct(value: number | null | undefined): string {
+  return value === null || value === undefined ? "–" : `${Math.round(value * 100)}%`;
+}
+
 export function span(lineStart: number, lineEnd: number): string {
   return lineStart === lineEnd ? `L${lineStart}` : `L${lineStart}-L${lineEnd}`;
 }

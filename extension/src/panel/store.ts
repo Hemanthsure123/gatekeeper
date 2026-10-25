@@ -1,6 +1,7 @@
 // One small state store for the side panel: get, set (shallow merge), subscribe.
 import type { Settings } from "../shared/settings";
 import type { ActivityEvent, FileState, PrView, TreeResponse } from "../shared/types";
+import type { GateFilter } from "./derive";
 
 export type View =
   | "loading"
@@ -37,6 +38,10 @@ export interface State {
   selected: string | null;
   showAll: boolean;
   filter: string;
+  /** Show only the changed files that reached a gate (set from the pipeline view). */
+  gate: GateFilter | null;
+  /** Keep the file under review in view while a run is live. */
+  followLive: boolean;
   expanded: Set<string>;
   tab: TabName;
   /** The analysis being shown or followed live. */
@@ -62,6 +67,8 @@ const initial: State = {
   selected: null,
   showAll: false,
   filter: "",
+  gate: null,
+  followLive: true,
   expanded: new Set(),
   tab: "activity",
   analysisId: null,
@@ -102,6 +109,7 @@ export const store = {
       now: "",
       currentPath: null,
       selected: null,
+      gate: null,
       expanded: new Set(),
       analysisId: null,
       chatFocus: null,

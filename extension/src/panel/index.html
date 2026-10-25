@@ -8,54 +8,96 @@
   </head>
   <body>
     <header class="top">
-      <div class="title-row">
+      <div class="bar">
+        <span class="brand" aria-hidden="true"><span data-icon="gate"></span></span>
         <div class="where">
           <span id="repo" class="repo">Gatekeeper</span>
-          <button id="pr-link" type="button" class="link pr-num" hidden></button>
+          <button id="pr-link" type="button" class="pr-num" title="Open this pull request in the GitHub tab" hidden></button>
         </div>
         <span id="conn" class="conn" role="status" aria-live="polite">
           <span class="dot" aria-hidden="true"></span><span class="conn-text">Connecting</span>
         </span>
+        <button id="options" type="button" class="icon-btn" aria-label="Options" title="Options">
+          <span data-icon="settings"></span>
+        </button>
       </div>
-      <p id="pr-title" class="pr-title muted" hidden></p>
-      <div class="actions">
-        <button id="analyse" type="button" class="primary" hidden>Analyse</button>
-        <button id="options" type="button" class="quiet">Options</button>
+      <div id="pr-head" class="pr-head" hidden>
+        <h1 id="pr-title" class="pr-title"></h1>
+        <div class="pr-meta">
+          <span id="pr-stats" class="pr-stats"></span>
+          <button id="analyse" type="button" class="primary" hidden>Re-analyse</button>
+        </div>
       </div>
       <div class="tabs" role="tablist" aria-label="Gatekeeper views">
-        <button id="tab-activity" role="tab" type="button" aria-controls="panel-activity" aria-selected="true">Activity</button>
-        <button id="tab-chat" role="tab" type="button" aria-controls="panel-chat" aria-selected="false" tabindex="-1">Chat</button>
-        <button id="tab-insights" role="tab" type="button" aria-controls="panel-insights" aria-selected="false" tabindex="-1">Insights</button>
+        <button id="tab-activity" role="tab" type="button" aria-controls="panel-activity" aria-selected="true">
+          <span data-icon="activity"></span> Activity
+        </button>
+        <button id="tab-chat" role="tab" type="button" aria-controls="panel-chat" aria-selected="false" tabindex="-1">
+          <span data-icon="chat"></span> Chat
+        </button>
+        <button id="tab-insights" role="tab" type="button" aria-controls="panel-insights" aria-selected="false" tabindex="-1">
+          <span data-icon="insights"></span> Insights
+        </button>
       </div>
     </header>
 
     <main>
-      <p id="state-line" class="state-line" role="status" aria-live="polite"></p>
+      <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
 
       <section id="panel-activity" role="tabpanel" aria-labelledby="tab-activity">
-        <div id="pr-sections" hidden>
+        <section id="empty" class="empty" hidden>
+          <span id="empty-mark" class="empty-mark" aria-hidden="true"></span>
+          <h2 id="empty-title"></h2>
+          <p id="empty-line" role="status" aria-live="polite"></p>
+          <div id="empty-actions" class="row-actions center"></div>
+        </section>
+
+        <div id="pr-sections" class="sections" hidden>
           <div id="verdict"></div>
-          <p id="now" class="now" role="status" aria-live="polite" hidden></p>
-          <section class="tree-section" aria-labelledby="files-heading">
+
+          <section id="pipeline" class="section" aria-labelledby="pipeline-heading">
             <div class="section-head">
-              <h3 id="files-heading">Files</h3>
+              <h2 id="pipeline-heading">Pipeline</h2>
+              <span id="pipeline-meta" class="section-meta"></span>
+            </div>
+            <p id="now" class="now" role="status" aria-live="polite" hidden></p>
+            <ol id="steps" class="steps"></ol>
+          </section>
+
+          <section id="files" class="section" aria-labelledby="files-heading">
+            <div class="section-head">
+              <h2 id="files-heading">Files</h2>
+              <span id="files-meta" class="section-meta"></span>
+              <div class="tool-btns push">
+                <button id="follow-live" type="button" class="toggle" aria-pressed="true" title="Keep the file under review in view" hidden>
+                  <span data-icon="target"></span> Follow
+                </button>
+                <button id="expand-all" type="button" class="icon-btn" aria-label="Expand all folders" title="Expand all folders">
+                  <span data-icon="unfold"></span>
+                </button>
+                <button id="collapse-all" type="button" class="icon-btn" aria-label="Collapse all folders" title="Collapse all folders">
+                  <span data-icon="fold"></span>
+                </button>
+              </div>
+            </div>
+            <div class="tree-tools">
               <div class="segmented" role="group" aria-label="Which files to show">
                 <button id="show-changed" type="button" aria-pressed="true">Changed</button>
                 <button id="show-all" type="button" aria-pressed="false">All files</button>
               </div>
+              <label class="search">
+                <span data-icon="search"></span>
+                <span class="visually-hidden">Filter files</span>
+                <input id="filter" type="search" placeholder="Filter files" autocomplete="off" spellcheck="false" />
+                <kbd aria-hidden="true">/</kbd>
+              </label>
             </div>
-            <label class="filter">
-              <span class="visually-hidden">Filter files</span>
-              <input id="filter" type="search" placeholder="Filter files" autocomplete="off" />
-            </label>
+            <p id="gate-chip" class="active-filter" role="status" hidden></p>
             <p id="tree-note" class="muted small" hidden></p>
-            <div id="tree"></div>
+            <div id="tree" class="tree-frame"></div>
           </section>
-          <div id="drawer" hidden></div>
-          <section aria-labelledby="timeline-heading">
-            <h3 id="timeline-heading">Timeline</h3>
-            <ol id="timeline" class="timeline"></ol>
-          </section>
+
+          <section id="timeline" class="section" aria-labelledby="timeline-heading"></section>
         </div>
       </section>
 

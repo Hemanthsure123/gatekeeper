@@ -3,22 +3,38 @@
 // Not analysed, Analysing (live), Result.
 import { loadSettings } from "../shared/settings";
 import type { ActivityEvent, PrView } from "../shared/types";
-import { renderDrawer, renderNow, renderTimeline, renderVerdict } from "./activity";
+import { renderNow, renderPipeline, renderTimeline, renderVerdict } from "./activity";
 import { Api, ApiError } from "./api";
 import { approvalControl } from "./approve";
 import { consentControl } from "./consent";
-import { errorText } from "./labels";
 import { renderChat } from "./chat";
+import {
+  ancestors,
+  deriveRun,
+  entriesFromFiles,
+  folderPaths,
+  funnel,
+  initialExpanded,
+  matchesGate,
+  type GateFilter,
+  type Outcome,
+  type RunFacts,
+} from "./derive";
+import { formatCount, h } from "./dom";
+import { icon, type IconName } from "./icons";
+import { renderInspector } from "./inspector";
 import { renderInsights } from "./insights";
+import { errorText, GATE_FILTER_TEXT } from "./labels";
 import { openBlob, openFolder, openPr, revealFile } from "./reveal";
 import { applyToStates, type PrRef, type State, store, type TabName, type View } from "./store";
-import { ancestors, initialExpanded, entriesFromFiles, renderTree, treeKeys } from "./tree";
+import { renderTree, revealRow, treeEntries, treeKeys } from "./tree";
 
 const PLAYBACK_MS = 120;
 const BUMP_MS = 700;
 const POLL_MS = 1500;
 const STILL_QUEUED_MS = 20000;
 const TERMINAL = new Set(["run_finished", "run_failed"]);
+const PR_VIEWS: View[] = ["not_analysed", "analysing", "result"];
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -100,6 +116,9 @@ function nowText(event: ActivityEvent): string | null {
       return null;
   }
 }
+
+const same = (a: readonly unknown[], b: readonly unknown[] | undefined): boolean =>
+  !!b && a.length === b.length && a.every((v, i) => v === b[i]);
 
 // -- live playback -------------------------------------------------------------------------
 
@@ -237,7 +256,7 @@ async function loadPr(ref: PrRef): Promise<void> {
   generation += 1;
   const mine = generation;
   store.resetPr({ ref, showAll: false, filter: "" });
-  setView("loading", "Loading…");
+  setView("loading", "Loading the pull request…");
   void loadTree(ref);
   try {
     const pr = await api.pr(ref.owner, ref.name, ref.number);
@@ -314,7 +333,7 @@ async function analyse(): Promise<void> {
   stopLive();
   const mine = generation;
   const fileStates: State["fileStates"] = {};
-  store.set({ events: [], now: "", currentPath: null, fileStates, selected: null });
+  store.set({ events: [], now: "", currentPath: null, fileStates, selected: null, gate: null });
   setView("analysing", "Queueing the review…");
   let response;
   try {
@@ -365,13 +384,29 @@ async function analyse(): Promise<void> {
   }, POLL_MS);
 }
 
+/** Select a file, open its details in the tree and scroll the tree to it. Clears a
+ * filter that would hide it. */
 function selectFile(path: string): void {
   const s = store.get();
   const expanded = new Set(s.expanded);
   for (const folder of ancestors(path)) expanded.add(folder);
-  store.set({ selected: path, expanded, tab: "activity" });
+  const patch: Partial<State> = { selected: path, expanded, tab: "activity" };
+  if (s.gate && !matchesGate(s.fileStates[path] ?? "listed", s.gate)) patch.gate = null;
+  if (s.filter && !path.toLowerCase().includes(s.filter.trim().toLowerCase())) {
+    patch.filter = "";
+    $<HTMLInputElement>("filter").value = "";
+  }
+  if (!s.pr?.files.some((f) => f.path === path)) patch.showAll = true;
+  store.set(patch);
+  window.setTimeout(() => revealRow($("tree"), path, true), 50);
+}
+
+function closeDetails(): void {
+  const { selected } = store.get();
+  if (!selected) return;
+  store.set({ selected: null });
   window.setTimeout(() => {
-    document.querySelector<HTMLElement>(`#tree [data-key="${CSS.escape(path)}"]`)?.scrollIntoView({ block: "nearest" });
+    document.querySelector<HTMLElement>(`#tree [data-key="${CSS.escape(selected)}"]`)?.focus();
   }, 50);
 }
 
@@ -388,17 +423,38 @@ function toggleFolder(path: string): void {
   store.set({ expanded });
 }
 
+function toggleGate(gate: GateFilter): void {
+  const s = store.get();
+  const next = s.gate === gate ? null : gate;
+  store.set({ gate: next, selected: null });
+  if (next) {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    $("files").scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+  }
+}
+
 const treeHandlers = {
   onFolder: (path: string) => {
     toggleFolder(path);
     void openFolder(path);
   },
   onFile: (path: string) => {
+    if (store.get().selected === path) {
+      store.set({ selected: null });
+      return;
+    }
     selectFile(path);
     const changed = store.get().pr?.files.some((f) => f.path === path) ?? false;
     if (changed) void revealFile(path).then(revealMessage);
     else void openBlob(path);
   },
+  details: (path: string) =>
+    renderInspector(store.get(), path, {
+      close: closeDetails,
+      openInGitHub,
+      revealRange,
+      ask: (file) => store.set({ tab: "chat", chatFocus: file }),
+    }),
 };
 
 function revealRange(path: string, start: number, end: number): void {
@@ -409,17 +465,6 @@ function openInGitHub(path: string): void {
   const changed = store.get().pr?.files.some((f) => f.path === path) ?? false;
   if (changed) void revealFile(path, undefined, undefined, true).then(revealMessage);
   else void openBlob(path, true);
-}
-
-// -- rendering -----------------------------------------------------------------------------
-
-let lastTreeKey: unknown[] = [];
-let lastVerdictKey: unknown[] = [];
-
-function changedVerdict(next: unknown[]): boolean {
-  const changed = next.some((v, i) => v !== lastVerdictKey[i]);
-  lastVerdictKey = next;
-  return changed;
 }
 
 function reloadAfterPost(): void {
@@ -435,12 +480,28 @@ function reloadAfterPost(): void {
     }
   }, 600);
 }
-let lastEvents: ActivityEvent[] | null = null;
 
-function changedInputs(next: unknown[]): boolean {
-  const changed = next.length !== lastTreeKey.length || next.some((v, i) => v !== lastTreeKey[i]);
-  lastTreeKey = next;
-  return changed;
+// -- rendering -----------------------------------------------------------------------------
+
+const lastKeys = new Map<string, unknown[]>();
+
+/** True when the inputs of a section changed since it last rendered. */
+function changed(section: string, key: unknown[]): boolean {
+  if (same(key, lastKeys.get(section))) return false;
+  lastKeys.set(section, key);
+  return true;
+}
+
+let facts: RunFacts = deriveRun([], "live");
+
+function outcome(s: State): Outcome {
+  if (s.view === "analysing") return "live";
+  return s.pr?.analysis.status === "failed" ? "failed" : "done";
+}
+
+function runFacts(s: State): RunFacts {
+  if (changed("facts", [s.events, outcome(s)])) facts = deriveRun(s.events, outcome(s));
+  return facts;
 }
 
 function renderHeader(s: State): void {
@@ -453,13 +514,30 @@ function renderHeader(s: State): void {
   const prLink = $<HTMLButtonElement>("pr-link");
   prLink.hidden = !s.ref;
   prLink.textContent = s.ref ? `#${s.ref.number}` : "";
+  $("pr-head").hidden = !s.pr;
   const title = $("pr-title");
-  title.hidden = !s.pr;
   title.textContent = s.pr?.title ?? "";
   title.title = s.pr?.title ?? "";
+  if (changed("pr-stats", [s.pr])) {
+    const totals = s.pr?.totals;
+    $("pr-stats").replaceChildren(
+      ...(totals
+        ? [
+            h("span", null, `${totals.files} file${totals.files === 1 ? "" : "s"}`),
+            h(
+              "span",
+              { class: "diffstat", "aria-label": `${totals.additions} lines added, ${totals.deletions} removed` },
+              h("span", { class: "add" }, `+${formatCount(totals.additions)}`),
+              h("span", { class: "del" }, `−${formatCount(totals.deletions)}`),
+            ),
+            s.pr?.draft ? h("span", { class: "pill" }, "Draft") : null,
+          ].filter((x): x is HTMLElement => x !== null)
+        : []),
+    );
+  }
   const button = $<HTMLButtonElement>("analyse");
-  button.hidden = !["not_analysed", "analysing", "result"].includes(s.view);
-  button.textContent = s.view === "not_analysed" ? "Analyse" : s.view === "analysing" ? "Analysing…" : "Re-analyse";
+  button.hidden = !["analysing", "result"].includes(s.view);
+  button.replaceChildren(icon("refresh"), s.view === "analysing" ? " Analysing…" : " Re-analyse");
   button.disabled = s.view === "analysing";
 }
 
@@ -473,49 +551,122 @@ function renderTabs(s: State): void {
   }
 }
 
+const EMPTY: Partial<Record<View, { title: string; mark: IconName | "spinner" }>> = {
+  loading: { title: "Connecting", mark: "spinner" },
+  not_connected: { title: "Not connected", mark: "gate" },
+  not_pr: { title: "No pull request here", mark: "gate" },
+};
+
+function renderEmpty(s: State): void {
+  const empty = EMPTY[s.view];
+  $("empty").hidden = !empty;
+  if (!empty || !changed("empty", [s.view, s.line])) return;
+  $("empty-mark").replaceChildren(
+    empty.mark === "spinner" ? h("span", { class: "spinner big" }) : icon(empty.mark),
+  );
+  $("empty-title").textContent = empty.title;
+  $("empty-line").textContent = s.line;
+  $("empty-actions").replaceChildren(
+    ...(s.view === "not_connected"
+      ? [
+          h("button", { type: "button", class: "primary", on: { click: () => void chrome.runtime.openOptionsPage() } }, "Open options"),
+          h("button", { type: "button", on: { click: () => void boot() } }, "Try again"),
+        ]
+      : []),
+  );
+}
+
+function renderFiles(s: State): void {
+  const changedCount = s.pr?.files.length ?? s.tree?.changed ?? 0;
+  $("files-meta").textContent =
+    `${changedCount} changed` + (s.tree ? ` of ${formatCount(s.tree.total)} files` : "");
+  $("show-changed").setAttribute("aria-pressed", String(!s.showAll));
+  $("show-all").setAttribute("aria-pressed", String(s.showAll));
+  $("follow-live").hidden = s.view !== "analysing";
+  $("follow-live").setAttribute("aria-pressed", String(s.followLive));
+  const note = $("tree-note");
+  note.textContent = s.treeNote;
+  note.hidden = !s.treeNote;
+  const chip = $("gate-chip");
+  chip.hidden = !s.gate;
+  if (s.gate) {
+    const count = funnel(s.fileStates)[s.gate];
+    if (changed("gate-chip", [s.gate, count])) {
+      chip.replaceChildren(
+        icon("filter"),
+        h("span", null, `Showing ${count} file${count === 1 ? "" : "s"} ${GATE_FILTER_TEXT[s.gate]}`),
+        h("button", { type: "button", class: "link", on: { click: () => store.set({ gate: null }) } }, "Show all"),
+      );
+    }
+  }
+  const key = [
+    s.tree,
+    s.pr,
+    s.fileStates,
+    s.expanded,
+    s.selected,
+    s.currentPath,
+    s.bumped,
+    s.showAll,
+    s.filter,
+    s.gate,
+    s.view,
+    s.followLive,
+    s.selected ? s.events : null,
+  ];
+  if (changed("tree", key)) renderTree($("tree"), s, treeHandlers);
+}
+
 function render(s: State): void {
   renderHeader(s);
   renderTabs(s);
-  const prShown = ["not_analysed", "analysing", "result"].includes(s.view);
-  $("state-line").textContent = prShown ? (s.view === "analysing" ? "" : s.line) : s.line;
+  renderEmpty(s);
+  const prShown = PR_VIEWS.includes(s.view);
   $("pr-sections").hidden = !prShown;
+  const notice = $("notice");
+  const line = s.view === "result" ? s.line : "";
+  notice.textContent = line;
+  notice.hidden = !line;
+  const f = runFacts(s);
   if (s.tab === "activity" && prShown) {
-    if (changedVerdict([s.view, s.pr, s.line])) {
-      renderVerdict($("verdict"), s, {
+    if (changed("verdict", [s.view, s.pr, s.line, f])) {
+      renderVerdict($("verdict"), s, f, {
         approval: (state) => approvalControl(state, { api: () => api, onPosted: reloadAfterPost }),
         consent: (state) =>
           consentControl(state, {
             api: () => api,
             onChanged: (granted) => (granted ? void analyse() : reloadAfterPost()),
           }),
+        analyse: () => void analyse(),
       });
     }
-    renderNow($("now"), s);
-    $("show-changed").setAttribute("aria-pressed", String(!s.showAll));
-    $("show-all").setAttribute("aria-pressed", String(s.showAll));
-    const note = $("tree-note");
-    note.textContent = s.treeNote;
-    note.hidden = !s.treeNote;
-    const key = [s.tree, s.pr, s.fileStates, s.expanded, s.selected, s.currentPath, s.bumped, s.showAll, s.filter, s.view];
-    if (changedInputs(key)) renderTree($("tree"), s, treeHandlers);
-    renderDrawer($("drawer"), s, {
-      close: () => store.set({ selected: null }),
-      openInGitHub,
-      revealRange,
-      ask: (path) => store.set({ tab: "chat", chatFocus: path }),
-    });
-    if (s.events !== lastEvents) {
-      lastEvents = s.events;
-      renderTimeline($("timeline"), s.events, selectFile);
+    const tracked = s.view !== "not_analysed";
+    $("pipeline").hidden = !tracked;
+    $("timeline").hidden = !tracked;
+    if (tracked && changed("pipeline", [s.view, s.pr, s.fileStates, f, s.gate])) {
+      renderPipeline($("steps"), $("pipeline-meta"), s, f, { filter: toggleGate });
     }
+    renderNow($("now"), s);
+    renderFiles(s);
+    if (tracked && changed("timeline", [s.events, s.view, f])) renderTimeline($("timeline"), s, f, selectFile);
   }
   if (s.tab === "chat") renderChat($("panel-chat"), s, { api: () => api, revealRange });
-  if (s.tab === "insights") renderInsights($("panel-insights"), s, { api: () => api });
+  if (s.tab === "insights") {
+    renderInsights($("panel-insights"), s, { api: () => api, facts: f, selectFile, revealRange });
+  }
 }
 
 // -- wiring --------------------------------------------------------------------------------
 
+function typing(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+}
+
 function wire(): void {
+  for (const slot of document.querySelectorAll<HTMLElement>("[data-icon]")) {
+    slot.replaceWith(icon(slot.dataset.icon as IconName));
+  }
   store.subscribe(render);
   $("analyse").addEventListener("click", () => void analyse());
   $("options").addEventListener("click", () => void chrome.runtime.openOptionsPage());
@@ -524,11 +675,45 @@ function wire(): void {
     if (ref) void openPr(ref.owner, ref.name, ref.number);
   });
   $("show-changed").addEventListener("click", () => store.set({ showAll: false }));
-  $("show-all").addEventListener("click", () => store.set({ showAll: true }));
-  $<HTMLInputElement>("filter").addEventListener("input", (event) =>
-    store.set({ filter: (event.target as HTMLInputElement).value }),
-  );
+  $("show-all").addEventListener("click", () => store.set({ showAll: true, gate: null }));
+  $("expand-all").addEventListener("click", () => store.set({ expanded: folderPaths(treeEntries(store.get())) }));
+  $("collapse-all").addEventListener("click", () => store.set({ expanded: new Set() }));
+  $("follow-live").addEventListener("click", () => {
+    const s = store.get();
+    store.set({ followLive: !s.followLive });
+    if (!s.followLive && s.currentPath) window.setTimeout(() => revealRow($("tree"), s.currentPath!), 50);
+  });
+  const filter = $<HTMLInputElement>("filter");
+  filter.addEventListener("input", () => store.set({ filter: filter.value }));
+  filter.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && filter.value) {
+      event.stopPropagation();
+      filter.value = "";
+      store.set({ filter: "" });
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      document.querySelector<HTMLElement>("#tree button.row")?.focus();
+    }
+  });
   treeKeys($("tree"), toggleFolder, (path) => store.get().expanded.has(path));
+
+  // "/" jumps to the file filter; Escape closes the file details.
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "/" && !typing(event.target) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (!PR_VIEWS.includes(store.get().view)) return;
+      event.preventDefault();
+      store.set({ tab: "activity" });
+      window.setTimeout(() => filter.focus(), 0);
+    } else if (event.key === "Escape" && store.get().selected && !typing(event.target)) {
+      closeDetails();
+    }
+  });
+
+  // Keep the sticky header's height in a variable, so scrolled-to sections clear it.
+  const header = document.querySelector<HTMLElement>("header.top")!;
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty("--header-h", `${header.offsetHeight}px`);
+  }).observe(header);
 
   const tabs: TabName[] = ["activity", "chat", "insights"];
   for (const name of tabs) {

@@ -5,6 +5,7 @@ import type { ChatMessage, ChatReference } from "../shared/types";
 import type { Api } from "./api";
 import { ApiError } from "./api";
 import { h, renderMarkdown, span } from "./dom";
+import { icon } from "./icons";
 import type { State } from "./store";
 import { store } from "./store";
 
@@ -173,6 +174,13 @@ function mount(root: HTMLElement): void {
   root.replaceChildren(
     h("p", { id: "chat-note", class: "muted small" }),
     h("div", { id: "chat-focus", class: "focus", hidden: true }),
+    h(
+      "div",
+      { id: "chat-empty", class: "empty chat-empty", hidden: true },
+      h("span", { class: "empty-mark", "aria-hidden": "true" }, icon("chat")),
+      h("h2", null, "Ask about this review"),
+      h("p", null, "Why the verdict, what to fix, which file matters most. Answers cite lines you can open in GitHub."),
+    ),
     h("ol", { id: "chat-list", class: "chat-list", "aria-live": "polite" }),
     h("p", { id: "chat-error", class: "state-line", role: "status" }),
     h(
@@ -219,6 +227,7 @@ function paint(root: HTMLElement, state: State): void {
   );
 
   (root.querySelector("#chat-error") as HTMLElement).textContent = view.error;
+  (root.querySelector("#chat-empty") as HTMLElement).hidden = !available || view.messages.length > 0 || view.thinking;
   if (renderedVersion === view.version) return;
   renderedVersion = view.version;
   const list = root.querySelector("#chat-list") as HTMLElement;
