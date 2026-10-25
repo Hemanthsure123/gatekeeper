@@ -37,6 +37,9 @@ class PipelineContext:
     item: ItemView
     analysis_id: UUID
     check_deadline: Callable[[], None] = field(default=lambda: None)
+    #: Opaque strings that must never appear in model input (see the leak guard). Steps
+    #: do not learn what they are or where they came from.
+    forbidden_terms: frozenset[str] = frozenset()
 
 
 class Step(Protocol):

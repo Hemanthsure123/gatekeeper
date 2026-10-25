@@ -26,6 +26,7 @@ from gatekeeper.errors import GatekeeperError, PolicyViolation, ValidationFailed
 from gatekeeper.github.client import GitHubClient, GitHubReader
 from gatekeeper.github.normalize import content_hash, normalize_pull
 from gatekeeper.identity import save_author
+from gatekeeper.identity.scrub import forbidden_terms, scrub_content
 from gatekeeper.logging import get_logger, log_context
 from gatekeeper.pipeline.core import ItemView, Pipeline, PipelineContext, Step
 from gatekeeper.pipeline.steps import STUB_STEPS
@@ -167,9 +168,12 @@ def process_pr(
         created_at = None
     check_deadline()
 
-    content, author = normalize_pull(
+    raw_content, author = normalize_pull(
         pr, files, checks, diff_max_bytes=settings.diff_max_bytes, account_created_at=created_at
     )
+    # The trusted boundary: identity leaves the text here, before storage or review.
+    content = scrub_content(raw_content, author)
+    terms = forbidden_terms(author)
     digest = content_hash(content)
     state = "merged" if pr.merged_at else pr.state
     run_id = uuid4()
@@ -228,6 +232,7 @@ def process_pr(
             item=ItemView(item_id, ItemKind.PR.value, str(ref.number), content, digest),
             analysis_id=analysis_id,
             check_deadline=check_deadline,
+            forbidden_terms=terms,
         )
         try:
             Pipeline(steps).run(ctx)
