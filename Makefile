@@ -16,7 +16,7 @@ CLEAN_PY := import pathlib, shutil; \
 
 .DEFAULT_GOAL := help
 .PHONY: help setup check lint format typecheck test up down clean init-env env-check env-sync \
-	doctor migrate migrate-down db-reset model-check api worker relay
+	doctor migrate migrate-down db-reset model-check api worker relay env-set
 
 help:
 	$(info Usage: make <target>)
@@ -32,6 +32,7 @@ help:
 	$(info init-env   create .env from .env.example, never overwrites)
 	$(info env-check  show which .env keys are SET or MISSING, by prompt; never prints values)
 	$(info env-sync   append keys missing from .env with empty values)
+	$(info env-set    set NON-SECRET keys: make env-set ARGS="KEY=VALUE ...")
 	$(info doctor     report tool versions and Ollama status)
 	$(info migrate      apply all database migrations)
 	$(info migrate-down roll back the latest migration)
@@ -79,6 +80,9 @@ env-check:
 
 env-sync:
 	$(UV) run --no-project python scripts/env_tools.py sync
+
+env-set:
+	$(UV) run python scripts/env_set.py $(ARGS)
 
 doctor:
 	$(UV) run --no-project python scripts/doctor.py
