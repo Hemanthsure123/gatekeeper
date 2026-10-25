@@ -3,7 +3,7 @@ name = "gatekeeper"
 version = "0.0.0"
 description = "Local-first, open-model GitHub triage for pull requests, issues and comments."
 readme = "README.md"
-license = "Apache-2.0"
+license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
