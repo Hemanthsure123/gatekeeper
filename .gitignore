@@ -29,6 +29,8 @@ dist/
 
 # --- JavaScript (dashboard / extension) -----------------------------------------
 node_modules/
+# Extension icons are drawn by scripts/extension.py at build time.
+extension/public/icons/
 
 # --- Local data volumes (bind mounts, dumps, model caches) ------------------------
 data/

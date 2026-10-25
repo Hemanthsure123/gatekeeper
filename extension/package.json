@@ -1,0 +1,20 @@
+{
+  "name": "gatekeeper-extension",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Gatekeeper side panel for GitHub pull requests (Chromium, Manifest V3).",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite build --watch --mode development"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.5",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

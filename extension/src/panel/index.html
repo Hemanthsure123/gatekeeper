@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gatekeeper</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="title-row">
+        <div class="where">
+          <span id="repo" class="repo">Gatekeeper</span>
+          <button id="pr-link" type="button" class="link pr-num" hidden></button>
+        </div>
+        <span id="conn" class="conn" role="status" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span><span class="conn-text">Connecting</span>
+        </span>
+      </div>
+      <p id="pr-title" class="pr-title muted" hidden></p>
+      <div class="actions">
+        <button id="analyse" type="button" class="primary" hidden>Analyse</button>
+        <button id="options" type="button" class="quiet">Options</button>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Gatekeeper views">
+        <button id="tab-activity" role="tab" type="button" aria-controls="panel-activity" aria-selected="true">Activity</button>
+        <button id="tab-chat" role="tab" type="button" aria-controls="panel-chat" aria-selected="false" tabindex="-1">Chat</button>
+        <button id="tab-insights" role="tab" type="button" aria-controls="panel-insights" aria-selected="false" tabindex="-1">Insights</button>
+      </div>
+    </header>
+
+    <main>
+      <p id="state-line" class="state-line" role="status" aria-live="polite"></p>
+
+      <section id="panel-activity" role="tabpanel" aria-labelledby="tab-activity">
+        <div id="pr-sections" hidden>
+          <div id="verdict"></div>
+          <p id="now" class="now" role="status" aria-live="polite" hidden></p>
+          <section class="tree-section" aria-labelledby="files-heading">
+            <div class="section-head">
+              <h3 id="files-heading">Files</h3>
+              <div class="segmented" role="group" aria-label="Which files to show">
+                <button id="show-changed" type="button" aria-pressed="true">Changed</button>
+                <button id="show-all" type="button" aria-pressed="false">All files</button>
+              </div>
+            </div>
+            <label class="filter">
+              <span class="visually-hidden">Filter files</span>
+              <input id="filter" type="search" placeholder="Filter files" autocomplete="off" />
+            </label>
+            <p id="tree-note" class="muted small" hidden></p>
+            <div id="tree"></div>
+          </section>
+          <div id="drawer" hidden></div>
+          <section aria-labelledby="timeline-heading">
+            <h3 id="timeline-heading">Timeline</h3>
+            <ol id="timeline" class="timeline"></ol>
+          </section>
+        </div>
+      </section>
+
+      <section id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden></section>
+      <section id="panel-insights" role="tabpanel" aria-labelledby="tab-insights" hidden></section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

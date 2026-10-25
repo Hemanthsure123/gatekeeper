@@ -16,7 +16,8 @@ CLEAN_PY := import pathlib, shutil; \
 
 .DEFAULT_GOAL := help
 .PHONY: help setup check lint format typecheck test up down clean init-env env-check env-sync \
-	doctor migrate migrate-down db-reset model-check api worker relay env-set gemma-setup
+	doctor migrate migrate-down db-reset model-check api worker relay env-set gemma-setup \
+	extension-install extension-build extension-dev
 
 help:
 	$(info Usage: make <target>)
@@ -42,6 +43,9 @@ help:
 	$(info api          run the webhook gateway on 127.0.0.1:8000)
 	$(info worker       run one queue worker; Ctrl+C finishes the current job, then stops)
 	$(info relay        forward webhooks from WEBHOOK_PROXY_URL to the local gateway, needs Node)
+	$(info extension-install  install the extension's dev tools (npm, needs Node 20+))
+	$(info extension-build    build the side-panel extension into extension/dist)
+	$(info extension-dev      rebuild the extension on every change)
 	@exit 0
 
 setup:
@@ -111,3 +115,12 @@ relay:
 
 gemma-setup:
 	$(UV) run python scripts/gemma_setup.py
+
+extension-install:
+	$(UV) run --no-project python scripts/extension.py install
+
+extension-build:
+	$(UV) run --no-project python scripts/extension.py build
+
+extension-dev:
+	$(UV) run --no-project python scripts/extension.py dev

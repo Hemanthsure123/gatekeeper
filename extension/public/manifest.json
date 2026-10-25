@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Gatekeeper",
+  "version": "0.6.0",
+  "description": "Contributor-blind review of the open GitHub pull request: verdict, verified evidence, live activity and chat.",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Open Gatekeeper",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "panel/index.html"
+  },
+  "permissions": ["sidePanel", "tabs", "storage"],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options/index.html",
+    "open_in_tab": true
+  }
+}
