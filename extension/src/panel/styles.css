@@ -12,6 +12,8 @@
   --accent: #3b5bdb;
   --accent-fg: #ffffff;
   --accent-soft: rgba(59, 91, 219, 0.12);
+  /* Chart marks: validated against both surfaces with the dataviz checks. */
+  --chart: #3b5bdb;
   --ok: #1a7f37;
   --warn: #9a6700;
   --bad: #cf222e;
@@ -34,6 +36,7 @@
     --accent: #91a7ff;
     --accent-fg: #0d1117;
     --accent-soft: rgba(145, 167, 255, 0.16);
+    --chart: #6c84f0;
     --ok: #3fb950;
     --warn: #d29922;
     --bad: #f85149;
@@ -747,6 +750,126 @@ ul.plain li {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
+}
+
+/* insights */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.tile-value {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.figure {
+  margin: 0 0 var(--s3);
+}
+
+.figure figcaption {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: var(--s1);
+}
+
+.chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-mark {
+  fill: var(--chart);
+}
+
+.chart-mark:hover {
+  opacity: 0.8;
+}
+
+.chart-empty {
+  fill: var(--muted);
+}
+
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-label,
+.chart-value,
+.chart-axis {
+  fill: var(--fg);
+  font-size: 11px;
+}
+
+.chart-axis {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--s1) var(--s2);
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.recent-row time {
+  grid-column: 1 / -1;
+  font-size: 11px;
+}
+
+.recent-pr {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-input pre.scroll {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--s2);
+  background: var(--surface);
+}
+
+.model-input summary {
+  cursor: pointer;
+  margin: var(--s2) 0 var(--s1);
 }
 
 @media (prefers-reduced-motion: reduce) {
