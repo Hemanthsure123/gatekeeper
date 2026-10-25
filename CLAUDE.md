@@ -40,7 +40,7 @@ g. **No secrets in code, logs, tests or fixtures.** Secrets live only in `.env` 
 | `make db-reset` | downgrade to base and upgrade to head; refuses unless `APP_ENV=development` |
 | `make model-check` | backend health, capabilities, two structured calls (2nd = cache hit); `ARGS=--vision` tests image input (warning only), `ARGS=--require-vision` makes it fatal |
 | `make api` / `make worker` / `make relay` | webhook gateway on 127.0.0.1:8000 / one queue worker / smee relay from WEBHOOK_PROXY_URL |
-| `uv run gatekeeper fetch-pr\|enqueue-pr\|audit\|jobs` | process a PR inline, queue it, inspect a run's audit chain, list jobs |
+| `uv run gatekeeper fetch-pr\|enqueue-pr\|show\|audit\|jobs` | review a PR inline (`--json`), queue it, print a stored analysis, inspect a run's audit chain, list jobs |
 | `make doctor` | tool versions and Ollama status; never reads `.env` |
 | `make clean` | remove caches and build output |
 
@@ -63,6 +63,20 @@ g. **No secrets in code, logs, tests or fixtures.** Secrets live only in `.env` 
 - Every module ships with tests in the same change. Cover the safety rules above with explicit tests: blindness, no auto-close of first PRs, schema validation and injection-as-data.
 - Unit tests never touch the network or the real `.env`. Use temp dirs and local fakes. Database tests are marked `integration`, run in throwaway `gatekeeper_test_*` databases, skip locally when Postgres is down, and must pass in CI. Fixtures contain no real or realistic secrets.
 - `filterwarnings = error` is on: fix warnings, don't silence them.
+
+## Review wording and safety (P04)
+
+- **Contributor-facing text is neutral and describes the work, never the person.**
+  - Verdict wording is fixed: "Looks valuable", "Needs a human look", "Likely low value".
+  - Never write "spam", "bot", "AI-generated", "lazy" or anything similar.
+- Every contributor-facing string passes the banned-word filter (`BANNED_WORDS` in `gatekeeper/review_core/reply.py`, the single list). On a hit, drop the string or use the neutral template.
+- **No accusation without proof:** a `likely_low_value` verdict needs a verified `raises_concern` citation or a high-severity negative signal; otherwise it becomes `needs_human_look`.
+- **Unsure means abstain.** Truncated input, low confidence, invalid model output or an oversize diff all mean `needs_human_look` and `abstained`, never a guess.
+- **Identity:**
+  - Scrubbing happens only in `gatekeeper.identity.scrub`, before storage.
+  - Review code gets an opaque `forbidden_terms` set, enforced by the adapter's leak guard.
+  - Never add identity-based signals.
+- Exactly one model call per review. The reply draft is composed by code and stored, never posted.
 
 ## Extension design principles (for the extension prompt)
 

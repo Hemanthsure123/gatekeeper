@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- P04 review core:
+  - identity scrub at the boundary, and a leak guard on model requests;
+  - 10 deterministic signals;
+  - a citable, budgeted diff;
+  - one structured review call (`review.pr` v1);
+  - a citation verifier;
+  - heuristic confidence v1 with abstain rules;
+  - a deterministic reply draft with a banned-word filter.
+- Migration 0004: `analyses.head_sha`, `content_hash` and `verdict`.
+- Skip-unchanged reprocessing.
+- `gatekeeper show` and `fetch-pr --json`.
+- REVIEW_* settings.
+- ADR 0005.
 - P03:
   - read-only GitHub client (token or GitHub App);
   - contributor-blind PR normalisation;

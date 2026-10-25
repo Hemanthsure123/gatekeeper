@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **partly built**. As of P03 these exist: the gateway, a Postgres-backed queue, a pipeline skeleton with stub steps, the audit trail and the model adapter. The review core, decision chain and action executor are still stubs or planned. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md), [ADR 0002](adr/0002-database-identity-and-audit.md), [ADR 0003](adr/0003-model-adapter.md) and [ADR 0004](adr/0004-intake-queue-and-identity-boundary.md).
+Status: **partly built**. As of P04 these exist: the gateway, the Postgres queue, the review core (identity scrub, signals, one model call, verifier, confidence, reply draft), the audit trail and the model adapter. The action executor is still planned, and nothing is posted to GitHub. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md), [ADR 0002](adr/0002-database-identity-and-audit.md), [ADR 0003](adr/0003-model-adapter.md), [ADR 0004](adr/0004-intake-queue-and-identity-boundary.md) and [ADR 0005](adr/0005-review-core.md).
 
 ```mermaid
 flowchart LR
@@ -121,3 +121,28 @@ flowchart LR
 | `gatekeeper.identity` | The only reader and writer of `item_authors`. |
 | `gatekeeper.review_core` | Empty for now. An AST test forbids identity imports here and in the steps. |
 | `gatekeeper.cli` | `gatekeeper fetch-pr`, `enqueue-pr`, `audit` and `jobs`. |
+
+## Built in P04: the review core
+
+```mermaid
+flowchart LR
+    N[normalize] --> S[identity.scrub<br/>trusted boundary]
+    S -->|scrubbed ItemContent + forbidden_terms| I[intake<br/>citable diff, budget]
+    I --> SG[signals<br/>10 deterministic rules]
+    SG --> R[review<br/>one model call<br/>leak guard]
+    R --> V[verify<br/>citations in code]
+    V --> D[decision<br/>confidence v1, abstain rules,<br/>reply draft]
+    D --> A[(analyses<br/>result, verdict, confidence)]
+    I & SG & R & V & D -.-> AT[(events)]
+```
+
+| Module | What it provides |
+| --- | --- |
+| `gatekeeper.identity.scrub` | Removes the login, mentions, profile URLs and e-mails before storage. Produces `forbidden_terms` for the leak guard. |
+| `gatekeeper.models.guards` | `forbidden_terms_guard`: blocks any model request that contains a forbidden term. |
+| `gatekeeper.review_core.signals` | Deterministic, identity-free signals; thresholds live in `thresholds.py`. |
+| `gatekeeper.review_core.diff` | Patch parsing, `L<n>|` rendering, importance-ordered token budget, `too_large`. |
+| `gatekeeper.review_core.review` | Prompt `review.pr` v1, the `ReviewResult` schema and the single model call. |
+| `gatekeeper.review_core.verifier` | Citation checks, `citation_validity`, the no-accusation-without-proof downgrade. |
+| `gatekeeper.review_core.confidence` | Heuristic confidence v1 (uncalibrated) and the abstain decision. |
+| `gatekeeper.review_core.reply` | Deterministic reply draft with the banned-word filter. |
