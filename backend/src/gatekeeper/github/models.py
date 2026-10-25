@@ -24,6 +24,8 @@ class Label(_GitHubModel):
 class RepoRef(_GitHubModel):
     id: int
     full_name: str
+    #: Private repositories are never sent to a hosted model unless explicitly allowed.
+    private: bool = False
 
 
 class BranchRef(_GitHubModel):

@@ -23,8 +23,14 @@ from gatekeeper.db.base import utcnow
 from gatekeeper.db.models import Analysis, AnalysisStatus, Item, ItemKind
 from gatekeeper.db.repos import get_or_create_repo
 from gatekeeper.db.session import create_db_engine, create_session_factory, session_scope
-from gatekeeper.errors import GatekeeperError, PolicyViolation, ValidationFailed
+from gatekeeper.errors import (
+    GatekeeperError,
+    PolicyViolation,
+    PrivateRepoHostedModelBlocked,
+    ValidationFailed,
+)
 from gatekeeper.github.client import GitHubClient, GitHubReader
+from gatekeeper.github.models import PullRequest
 from gatekeeper.github.normalize import content_hash, normalize_pull
 from gatekeeper.identity import save_author
 from gatekeeper.identity.scrub import forbidden_terms, scrub_content
@@ -151,6 +157,26 @@ def _finish_analysis(
         )
 
 
+#: Backends that send content to a third-party service.
+HOSTED_BACKENDS: Final = frozenset({"gemini_api"})
+
+
+def guard_private_repo(settings: Settings, pr: PullRequest) -> None:
+    """Never silently send a private repository's code to a hosted model."""
+    if (
+        settings.model_backend not in HOSTED_BACKENDS
+        or settings.allow_private_repos_on_hosted_model
+    ):
+        return
+    repo = pr.base.repo
+    if repo is None or repo.private:
+        raise PrivateRepoHostedModelBlocked(
+            "this repository is private (or its visibility is unknown), and the active model "
+            "backend is hosted; set ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true to allow it, or "
+            "use the local Ollama backend"
+        )
+
+
 def process_pr(
     services: Services,
     ref: PrRef,
@@ -244,6 +270,7 @@ def process_pr(
             get_model=services.get_model,
         )
         try:
+            guard_private_repo(settings, pr)
             Pipeline(steps).run(ctx)
             review_state = ctx.state
             final_status = (

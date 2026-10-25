@@ -47,7 +47,8 @@ def _describe(label: str, response: ModelResponse[Greeting]) -> str:
     return (
         f"{label}: latency {response.latency_ms:.0f} ms, tokens in/out "
         f"{usage.input_tokens}/{usage.output_tokens}, cache_hit={response.cache_hit}, "
-        f"attempts={response.attempts}, parsed={response.parsed.model_dump()}"
+        f"attempts={response.attempts}, key={response.meta.get('key_alias', '-')}, "
+        f"failovers={response.meta.get('failovers', 0)}, parsed={response.parsed.model_dump()}"
     )
 
 
@@ -74,7 +75,10 @@ def run_vision(adapter: ModelAdapter) -> bool:
         return False
     answer = response.parsed.colour.strip().lower()
     passed = "red" in answer
-    print(f"Vision: {'PASS' if passed else 'FAIL'} (model said {answer!r} for a solid red image)")
+    print(
+        f"Vision: {'PASS' if passed else 'FAIL'} (model said {answer!r} for a solid red image; "
+        f"key={response.meta.get('key_alias', '-')}, latency {response.latency_ms:.0f} ms)"
+    )
     return passed
 
 
@@ -105,6 +109,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     health = adapter.health()
+    pool = getattr(adapter.driver, "pool", None)
+    if pool is not None:
+        print(f"Key pool: {pool.size} key(s), strategy {pool.strategy}")
     print(f"Health: {'ok' if health.ok else 'NOT OK'} - {health.message}")
     if not health.ok:
         return 1

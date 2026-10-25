@@ -16,13 +16,19 @@ from gatekeeper.audit import AuditReader, AuditRecorder, Redactor
 from gatekeeper.config import Settings
 from gatekeeper.db.models import Analysis, Item
 from gatekeeper.db.session import session_scope
-from gatekeeper.errors import PolicyViolation, ValidationFailed
+from gatekeeper.errors import PolicyViolation, PrivateRepoHostedModelBlocked, ValidationFailed
 from gatekeeper.github.models import CheckRun, PullFile, PullFiles, PullRequest
 from gatekeeper.identity import get_author
 from gatekeeper.models.backend import BackendCall
 from gatekeeper.models.testing import FakeBackend, fake_adapter
 from gatekeeper.pipeline.core import PipelineContext
-from gatekeeper.pipeline.process_pr import PrRef, Services, process_pr, process_pr_handler
+from gatekeeper.pipeline.process_pr import (
+    PrRef,
+    Services,
+    guard_private_repo,
+    process_pr,
+    process_pr_handler,
+)
 from gatekeeper.pipeline.steps import REVIEW_STEPS
 from gatekeeper.queue.jobs import ClaimedJob
 from gatekeeper.queue.worker import JobContext
@@ -60,6 +66,7 @@ def review_json(**overrides: Any) -> dict[str, Any]:
 class FakeGitHub:
     head_sha: str = "f" * 40
     patch: str = PATCH
+    private: bool = False
     calls: list[str] = field(default_factory=list)
 
     def get_pull(self, owner: str, name: str, number: int) -> PullRequest:
@@ -72,7 +79,10 @@ class FakeGitHub:
                 "body": BODY,
                 "user": {"login": LOGIN, "id": 777},
                 "author_association": "FIRST_TIMER",
-                "base": {"sha": "0" * 40, "repo": {"id": 31337, "full_name": f"{owner}/{name}"}},
+                "base": {
+                    "sha": "0" * 40,
+                    "repo": {"id": 31337, "full_name": f"{owner}/{name}", "private": self.private},
+                },
                 "head": {"sha": self.head_sha},
                 "additions": 2,
                 "deletions": 0,
@@ -351,3 +361,60 @@ def test_queue_handler_runs_the_pipeline(session_factory: sessionmaker[Session])
     assert analysis.status == "completed"
     start = AuditReader(session_factory).get_events(analysis.run_id)[0]
     assert start.payload["trigger"] == "webhook:d-9"
+
+
+def private_pull(private: bool | None) -> PullRequest:
+    base: dict[str, Any] = {"sha": "0" * 40}
+    if private is not None:
+        base["repo"] = {"id": 1, "full_name": "octo/play", "private": private}
+    return PullRequest.model_validate(
+        {
+            "number": 1,
+            "state": "open",
+            "title": "t",
+            "user": {"login": "x", "id": 1},
+            "base": base,
+            "head": {"sha": "f" * 40},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("backend", "private", "allowed", "blocked"),
+    [
+        ("gemini_api", True, False, True),
+        ("gemini_api", None, False, True),
+        ("gemini_api", False, False, False),
+        ("gemini_api", True, True, False),
+        ("ollama", True, False, False),
+    ],
+)
+def test_private_repo_guard(
+    backend: str, private: bool | None, allowed: bool, blocked: bool
+) -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None, model_backend=backend, allow_private_repos_on_hosted_model=allowed
+    )
+    if blocked:
+        with pytest.raises(PrivateRepoHostedModelBlocked) as caught:
+            guard_private_repo(settings, private_pull(private))
+        assert (caught.value.code, caught.value.retryable) == (
+            "private_repo_hosted_model_blocked",
+            False,
+        )
+    else:
+        guard_private_repo(settings, private_pull(private))
+
+
+@pytest.mark.integration
+def test_private_repo_on_hosted_model_is_a_failed_analysis(
+    session_factory: sessionmaker[Session],
+) -> None:
+    services, fake = make_services(
+        session_factory, FakeGitHub(private=True), model_backend="gemini_api"
+    )
+    with pytest.raises(PrivateRepoHostedModelBlocked):
+        process_pr(services, PrRef("octo", "play", 49), trigger="test")
+    analysis = latest_analysis(session_factory)
+    assert (analysis.status, analysis.error_code) == ("failed", "private_repo_hosted_model_blocked")
+    assert fake.calls == []

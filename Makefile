@@ -16,7 +16,7 @@ CLEAN_PY := import pathlib, shutil; \
 
 .DEFAULT_GOAL := help
 .PHONY: help setup check lint format typecheck test up down clean init-env env-check env-sync \
-	doctor migrate migrate-down db-reset model-check api worker relay env-set
+	doctor migrate migrate-down db-reset model-check api worker relay env-set gemma-setup
 
 help:
 	$(info Usage: make <target>)
@@ -38,6 +38,7 @@ help:
 	$(info migrate-down roll back the latest migration)
 	$(info db-reset     drop and re-create the schema, development only)
 	$(info model-check  check the model backend; ARGS=--vision also tests image input)
+	$(info gemma-setup  check Gemini API keys by alias and select the Gemma 4 models)
 	$(info api          run the webhook gateway on 127.0.0.1:8000)
 	$(info worker       run one queue worker; Ctrl+C finishes the current job, then stops)
 	$(info relay        forward webhooks from WEBHOOK_PROXY_URL to the local gateway, needs Node)
@@ -107,3 +108,6 @@ worker:
 
 relay:
 	$(UV) run python scripts/relay.py $(ARGS)
+
+gemma-setup:
+	$(UV) run python scripts/gemma_setup.py

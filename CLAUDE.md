@@ -65,6 +65,16 @@ g. **No secrets in code, logs, tests or fixtures.** You may change non-secret se
 - Unit tests never touch the network or the real `.env`. Use temp dirs and local fakes. Database tests are marked `integration`, run in throwaway `gatekeeper_test_*` databases, skip locally when Postgres is down, and must pass in CI. Fixtures contain no real or realistic secrets.
 - `filterwarnings = error` is on: fix warnings, don't silence them.
 
+## Data handling and API keys (P05)
+
+- **API mode** (`gemini_api`): scrubbed PR content goes to Google's Gemini API. Never claim that code stays on the machine in this mode.
+- **Private repositories** are refused in API mode (`private_repo_hosted_model_blocked`) unless `ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true`.
+- **Ollama** stays a supported local option. Don't remove it.
+- **Gemini key pool** (`gatekeeper.models.key_pool`):
+  - Never print, log, audit or cache a key. Refer to keys only as `key-1`, `key-2`, and so on.
+  - The Redactor masks every pool key, plus anything shaped like a Google API key.
+  - Quotas are per project, so keys from the same project share one quota.
+
 ## Review wording and safety (P04)
 
 - **Contributor-facing text is neutral and describes the work, never the person.**

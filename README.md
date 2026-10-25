@@ -61,6 +61,18 @@ eval/        placeholder for the evaluation harness
 docs/        architecture, ADRs and build logs
 ```
 
+## Data handling
+
+- **API mode** (`MODEL_BACKEND=gemini_api`): the scrubbed pull request content is sent to Google's Gemini API. That content is the title, the description, the diff and the computed signals, with the author's login, mentions, profile links and e-mail addresses removed. Google's terms for the Gemini API apply to that data.
+- **Private repositories are blocked by default** in API mode. To allow them, set `ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true` deliberately.
+- **Local mode** (`MODEL_BACKEND=ollama`) is still available: the model runs on your machine through Ollama.
+
+## API keys
+
+- `GEMINI_API_KEYS` takes several comma-separated keys. Gatekeeper rotates through them and refers to them only as `key-1`, `key-2`, and so on.
+- Quotas are generally per Google Cloud project. Keys from the same project share one quota, so extra keys from the same project do not add capacity.
+- Only use keys you are entitled to use, and check Google's current terms for the Gemini API.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see [SECURITY.md](SECURITY.md).

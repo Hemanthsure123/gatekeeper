@@ -142,6 +142,10 @@ class ModelAdapter:
     def backend_name(self) -> str:
         return self._driver.name
 
+    @property
+    def driver(self) -> BackendDriver:
+        return self._driver
+
     def model_name(self, role: ModelRole = ModelRole.PRIMARY) -> str:
         return self._driver.model_for(role)
 
