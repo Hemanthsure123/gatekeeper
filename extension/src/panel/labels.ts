@@ -65,7 +65,7 @@ export function abstainText(reason: string | null): string {
 /** One plain line for an error code from a failed job or analysis. */
 const ERRORS: Record<string, string> = {
   private_repo_hosted_model_blocked:
-    "This repository is private, so it is not sent to the hosted model. Use Ollama, or set ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true if you accept that.",
+    "This repository is private, so its code is not sent to the hosted model unless you allow it for this repository (below) or use the local Ollama backend.",
   policy_violation: "This repository is not in GATEKEEPER_ALLOWED_REPOS.",
   not_found: "GitHub could not find this pull request with the configured token.",
   external_service_error:

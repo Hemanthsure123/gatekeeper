@@ -112,7 +112,10 @@ Useful commands:
 ## Data handling
 
 - **Hosted mode** (`gemini_api`) sends the scrubbed pull request content to Google's Gemini API: title, description, diff and computed signals, with the author's login, mentions, profile links and e-mail addresses removed. Chat questions are scrubbed the same way.
-- **Private repositories are refused** in hosted mode unless you set `ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true`.
+- **Private repositories are refused** in hosted mode. When a review is blocked for that reason, the side panel offers **Allow hosted review for this private repository**:
+  - you tick a box that states what is sent, for that repository only;
+  - the choice is recorded in the audit trail, and you can revoke it;
+  - `ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true` allows all private repositories at once.
 - **Local mode** (`ollama`) keeps everything on your machine.
 - **Secrets** live only in `.env`. The extension's access token is stored only in your browser profile.
 - **API keys** are referred to only as `key-1`, `key-2`, and so on. They are masked in logs and audit events.

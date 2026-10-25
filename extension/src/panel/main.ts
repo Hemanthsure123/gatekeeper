@@ -6,6 +6,7 @@ import type { ActivityEvent, PrView } from "../shared/types";
 import { renderDrawer, renderNow, renderTimeline, renderVerdict } from "./activity";
 import { Api, ApiError } from "./api";
 import { approvalControl } from "./approve";
+import { consentControl } from "./consent";
 import { errorText } from "./labels";
 import { renderChat } from "./chat";
 import { renderInsights } from "./insights";
@@ -482,6 +483,11 @@ function render(s: State): void {
     if (changedVerdict([s.view, s.pr, s.line])) {
       renderVerdict($("verdict"), s, {
         approval: (state) => approvalControl(state, { api: () => api, onPosted: reloadAfterPost }),
+        consent: (state) =>
+          consentControl(state, {
+            api: () => api,
+            onChanged: (granted) => (granted ? void analyse() : reloadAfterPost()),
+          }),
       });
     }
     renderNow($("now"), s);

@@ -17,6 +17,8 @@ const TIMELINE_MAX = 300;
 export interface VerdictHandlers {
   /** Renders the approve-and-post control under the reply draft (Part 6). */
   approval?: (state: State) => HTMLElement | null;
+  /** Per-repository consent for private repositories on the hosted model. */
+  consent?: (state: State) => HTMLElement | null;
 }
 
 export function renderVerdict(root: HTMLElement, state: State, handlers: VerdictHandlers): void {
@@ -45,15 +47,16 @@ export function renderVerdict(root: HTMLElement, state: State, handlers: Verdict
     return;
   }
   if (analysis.status === "failed") {
-    root.append(
-      h(
-        "div",
-        { class: "card tone-bad" },
-        h("p", { class: "card-title" }, h("span", { "aria-hidden": "true" }, "⚠ "), "The review could not finish"),
-        h("p", { class: "muted" }, errorText(analysis.error_code)),
-        h("p", { class: "muted small" }, `Code: ${analysis.error_code ?? "unknown"}. Fix the cause, then Re-analyse.`),
-      ),
+    const failed = h(
+      "div",
+      { class: "card tone-bad" },
+      h("p", { class: "card-title" }, h("span", { "aria-hidden": "true" }, "⚠ "), "The review could not finish"),
+      h("p", { class: "muted" }, errorText(analysis.error_code)),
+      h("p", { class: "muted small" }, `Code: ${analysis.error_code ?? "unknown"}. Fix the cause, then Re-analyse.`),
     );
+    const consent = handlers.consent?.(state);
+    if (consent) failed.append(consent);
+    root.append(failed);
     return;
   }
   const verdict = VERDICT[analysis.verdict ?? "needs_human_look"];
@@ -118,6 +121,8 @@ export function renderVerdict(root: HTMLElement, state: State, handlers: Verdict
   }
   const approval = handlers.approval?.(state);
   if (approval) card.append(approval);
+  const consent = handlers.consent?.(state);
+  if (consent) card.append(consent);
   root.append(card);
 }
 

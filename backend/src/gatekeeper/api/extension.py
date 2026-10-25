@@ -58,7 +58,7 @@ from gatekeeper.db.models import (
     Job,
     Repo,
 )
-from gatekeeper.db.repos import find_pr_item, latest_analysis
+from gatekeeper.db.repos import find_pr_item, find_repo, latest_analysis
 from gatekeeper.db.session import session_scope
 from gatekeeper.errors import (
     AuthenticationFailed,
@@ -72,6 +72,7 @@ from gatekeeper.github.client import GitHubClient
 from gatekeeper.github.normalize import ItemContent
 from gatekeeper.logging import get_logger
 from gatekeeper.models.adapter import ModelAdapter
+from gatekeeper.pipeline.process_pr import HOSTED_CONSENT_KEY, hosted_consent
 from gatekeeper.pipeline.version import PIPELINE_VERSION
 from gatekeeper.queue import PROCESS_PR, enqueue
 from gatekeeper.review_core.reply import contains_banned, defuse_mentions
@@ -444,6 +445,12 @@ class ChatBody(BaseModel):
     focus_path: str | None = Field(default=None, max_length=500)
 
 
+class ConsentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm: bool
+
+
 class CommentBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -532,7 +539,57 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
             analysis = latest_analysis(session, item.id) if item else None
             if item is None or analysis is None:
                 raise NotFoundError("this pull request has not been analysed yet")
-            return {"repo": f"{owner}/{name}", **pr_view(session, item, analysis)}
+            repo = find_repo(session, owner, name)
+            return {
+                "repo": f"{owner}/{name}",
+                **pr_view(session, item, analysis),
+                "model_backend": settings.model_backend,
+                "hosted_consent": hosted_consent(repo.config if repo else None),
+            }
+
+    def _set_consent(owner: str, name: str, *, grant: bool) -> dict[str, Any]:
+        """Grant or revoke a maintainer's consent to review this one private repository
+        with the hosted model. Audited before it takes effect (fail closed)."""
+        _check_allowed(settings, owner, name)
+        with session_scope(sessions) as session:
+            repo = find_repo(session, owner, name)
+            if repo is None:
+                raise NotFoundError("analyse a pull request in this repository first")
+            full_name = f"{repo.owner}/{repo.name}"
+            run = deps.recorder.start_run(payload={"kind": "consent", "repo": full_name})
+            run.record(
+                EventType.ACTION,
+                Actor.MAINTAINER,
+                {
+                    "action": (
+                        "allow_hosted_model_for_private_repo"
+                        if grant
+                        else "revoke_hosted_model_for_private_repo"
+                    ),
+                    "repo": full_name,
+                    "backend": settings.model_backend,
+                },
+            )
+            run.end(status="completed")
+            config = {k: v for k, v in (repo.config or {}).items() if k != HOSTED_CONSENT_KEY}
+            if grant:
+                config[HOSTED_CONSENT_KEY] = {
+                    "granted_at": utcnow().isoformat(),
+                    "backend": settings.model_backend,
+                }
+            repo.config = config
+        log.info("hosted-model consent changed", granted=grant)
+        return {"repo": full_name, "hosted_consent": grant}
+
+    @router.post("/repos/{owner}/{name}/hosted-consent")
+    def grant_consent(owner: str, name: str, body: ConsentBody) -> dict[str, Any]:
+        if body.confirm is not True:
+            raise ValidationFailed("allowing a private repository needs confirm: true")
+        return _set_consent(owner, name, grant=True)
+
+    @router.delete("/repos/{owner}/{name}/hosted-consent")
+    def revoke_consent(owner: str, name: str) -> dict[str, Any]:
+        return _set_consent(owner, name, grant=False)
 
     @router.post("/pr/{owner}/{name}/{number}/analyze")
     def analyze(owner: str, name: str, number: int, force: bool = False) -> dict[str, Any]:

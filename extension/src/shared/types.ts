@@ -86,6 +86,9 @@ export interface PrView {
   signals: SignalItem[];
   files: PrFile[];
   activity_last_id: number;
+  model_backend: string;
+  /** A maintainer allowed reviewing this private repository with the hosted model. */
+  hosted_consent: boolean;
 }
 
 export interface ActivityEvent {

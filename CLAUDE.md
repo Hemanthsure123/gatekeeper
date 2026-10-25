@@ -90,7 +90,10 @@ g. **No secrets in code, logs, tests or fixtures.** You may change non-secret se
 ## Data handling and API keys (P05)
 
 - **API mode** (`gemini_api`): scrubbed PR content goes to Google's Gemini API. Never claim that code stays on the machine in this mode.
-- **Private repositories** are refused in API mode (`private_repo_hosted_model_blocked`) unless `ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true`.
+- **Private repositories** are refused in API mode (`private_repo_hosted_model_blocked`). Two things lift that:
+  - `ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true`, for all private repositories;
+  - a maintainer's per-repository consent, granted in the extension after a block. It is stored in `repos.config.hosted_model_private_consent`, audited before it takes effect, and revocable.
+  - Never grant either on the user's behalf.
 - **Ollama** stays a supported local option. Don't remove it.
 - **Gemini key pool** (`gatekeeper.models.key_pool`):
   - Never print, log, audit or cache a key. Refer to keys only as `key-1`, `key-2`, and so on.

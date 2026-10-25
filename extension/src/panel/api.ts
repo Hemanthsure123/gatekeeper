@@ -99,6 +99,13 @@ export class Api {
     return this.request(`/api/analyses/${enc(id)}/activity?after=${after}`);
   }
 
+  setHostedConsent(owner: string, name: string, grant: boolean): Promise<{ hosted_consent: boolean }> {
+    const path = `/api/repos/${enc(owner)}/${enc(name)}/hosted-consent`;
+    return grant
+      ? this.request(path, { method: "POST", body: JSON.stringify({ confirm: true }) })
+      : this.request(path, { method: "DELETE" });
+  }
+
   job(id: string): Promise<JobStatus> {
     return this.request(`/api/jobs/${enc(id)}`);
   }

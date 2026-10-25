@@ -45,3 +45,16 @@ The development machine has 15 GB RAM and no discrete GPU, so local Gemma 4 infe
 - Positive: reviews take seconds rather than minutes on this machine. An invalid or rate-limited key degrades the service instead of breaking it.
 - Negative: scrubbed PR content leaves the machine for Google's Gemini API. The README and CLAUDE.md state this, and private repositories are refused by default.
 - Negative: per-process cooldowns mean two worker processes can both hit a cooling key. Redis sharing can be added later.
+
+## Amendment (P06): per-repository consent
+
+The global switch was the only way past the private-repository guard. Turning it on allows **every** private repository the token can read, which is too broad for reviewing one repository.
+
+A maintainer can now allow a single private repository instead:
+
+- **How:** the side panel shows the control after a review was blocked with `private_repo_hosted_model_blocked`. A checkbox states what is sent (title, description and diff, with the author's login, mentions and e-mails removed), and its label names the repository.
+- **Storage:** the consent is kept in `repos.config.hosted_model_private_consent`, with the time and the backend.
+- **API:** `POST` grants it with `confirm: true`; `DELETE /api/repos/{owner}/{name}/hosted-consent` revokes it.
+- **Audit:** each change is an audited `action` event by the maintainer, recorded before the change takes effect (fail closed).
+- **Effect:** the worker reads the consent at job time, so no restart is needed.
+- **Unchanged:** the guard's default (refuse), the global switch, and Ollama as the private option. Code never grants consent on its own.

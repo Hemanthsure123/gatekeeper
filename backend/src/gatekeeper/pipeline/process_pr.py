@@ -14,7 +14,7 @@ pending row is marked failed.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 from uuid import UUID, uuid4
@@ -205,21 +205,30 @@ def _claim_pending(session: Session, analysis_id: UUID | None, item_id: UUID) ->
 
 #: Backends that send content to a third-party service.
 HOSTED_BACKENDS: Final = frozenset({"gemini_api"})
+#: ``repos.config`` key holding a maintainer's explicit, audited consent to review this
+#: one private repository with a hosted model (granted and revoked from the extension).
+HOSTED_CONSENT_KEY: Final = "hosted_model_private_consent"
 
 
-def guard_private_repo(settings: Settings, pr: PullRequest) -> None:
-    """Never silently send a private repository's code to a hosted model."""
+def hosted_consent(config: Mapping[str, Any] | None) -> bool:
+    return bool((config or {}).get(HOSTED_CONSENT_KEY))
+
+
+def guard_private_repo(settings: Settings, pr: PullRequest, *, consented: bool = False) -> None:
+    """Never silently send a private repository's code to a hosted model. Allowed only
+    with ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true or a per-repository consent."""
     if (
         settings.model_backend not in HOSTED_BACKENDS
         or settings.allow_private_repos_on_hosted_model
+        or consented
     ):
         return
     repo = pr.base.repo
     if repo is None or repo.private:
         raise PrivateRepoHostedModelBlocked(
             "this repository is private (or its visibility is unknown), and the active model "
-            "backend is hosted; set ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true to allow it, or "
-            "use the local Ollama backend"
+            "backend is hosted; allow it for this repository from the extension, set "
+            "ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true, or use the local Ollama backend"
         )
 
 
@@ -300,6 +309,7 @@ def _process_pr(
 
     with session_scope(services.session_factory) as session:
         repo = get_or_create_repo(session, ref.owner, ref.name)
+        consented = hosted_consent(repo.config)
         if repo.github_repo_id is None and pr.base.repo is not None:
             repo.github_repo_id = pr.base.repo.id
         item = _upsert_item(
@@ -384,7 +394,7 @@ def _process_pr(
             activity=activity,
         )
         try:
-            guard_private_repo(settings, pr)
+            guard_private_repo(settings, pr, consented=consented)
             Pipeline(steps).run(ctx)
             review_state = ctx.state
             final_status = (
