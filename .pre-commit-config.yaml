@@ -2,6 +2,8 @@
 # release tags on 2026-10-25; Dependabot does not bump this file, so run
 # `uv run pre-commit autoupdate` periodically and keep ruff in step with uv.lock.
 minimum_pre_commit_version: "4.0.0"
+# The demo PR "whitespace-noise" is deliberately badly formatted.
+exclude: ^demo/prs/2-whitespace-noise/
 
 repos:
   - repo: https://github.com/gitleaks/gitleaks

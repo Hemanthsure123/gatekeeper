@@ -1,0 +1,1 @@
+Polish word_count docstring

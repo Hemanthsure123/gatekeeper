@@ -1,0 +1,1 @@
+Fix truncate() exceeding the requested width

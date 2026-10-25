@@ -52,6 +52,8 @@ module-root = "backend/src"
 
 [tool.ruff]
 line-length = 100
+# The demo pack is playground content, not Gatekeeper code (one PR is noisy on purpose).
+extend-exclude = ["demo"]
 src = ["backend/src", "backend/tests", "scripts"]
 
 [tool.ruff.lint]

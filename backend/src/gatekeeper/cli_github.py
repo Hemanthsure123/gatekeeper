@@ -18,6 +18,7 @@ from gatekeeper.github.auth import auth_from_settings
 from gatekeeper.github.client import GitHubClient
 
 MAX_LISTED_REPOS: Final = 20
+REPO_SCAN_LIMIT: Final = 100
 _REPO = re.compile(r"^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/([A-Za-z0-9._-]+)$")
 
 
@@ -61,11 +62,12 @@ def cmd_whoami(settings: Settings, client: GitHubClient | None = None) -> int:
     login = client.authenticated_login()
     limit = client.rate_limit()
     reset = datetime.fromtimestamp(limit.reset, UTC).strftime("%H:%M UTC")
-    repos = client.accessible_repos()
+    repos = client.accessible_repos(limit=REPO_SCAN_LIMIT)
     print(f"Account:    {login}")
     print("Auth mode:  token (GITHUB_TOKEN_DEV)")
     print(f"Rate limit: {limit.remaining}/{limit.limit} remaining (resets {reset})")
-    print(f"Repositories this token can read ({len(repos)}):")
+    count = f"at least {len(repos)}" if len(repos) >= REPO_SCAN_LIMIT else str(len(repos))
+    print(f"Repositories this token can read ({count}):")
     for repo in repos[:MAX_LISTED_REPOS]:
         print(f"  - {repo.full_name}{' (private)' if repo.private else ''}")
     if len(repos) > MAX_LISTED_REPOS:
