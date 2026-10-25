@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
@@ -34,6 +35,17 @@ BODY_MASK: Final = "[OMITTED]"
 _HANDLER_NAME: Final = "gatekeeper"
 
 
+_KEY_ALIAS = re.compile(r"key-\d{1,3}")
+
+
+def _harmless(value: Any) -> bool:
+    """Values that cannot be credentials even under a sensitive-looking field name:
+    numbers, booleans, None (token counts) and key-pool aliases such as ``key-2``."""
+    if value is None or isinstance(value, bool | int | float):
+        return True
+    return isinstance(value, str) and _KEY_ALIAS.fullmatch(value) is not None
+
+
 class RedactingProcessor:
     """structlog processor that masks sensitive keys and redacts every string value."""
 
@@ -46,7 +58,7 @@ class RedactingProcessor:
 
     def _field(self, key: str, value: Any) -> Any:
         lowered = key.lower()
-        if any(part in lowered for part in SENSITIVE_KEY_PARTS):
+        if any(part in lowered for part in SENSITIVE_KEY_PARTS) and not _harmless(value):
             return KEY_MASK
         if not self._log_bodies and lowered in BODY_KEYS:
             return BODY_MASK

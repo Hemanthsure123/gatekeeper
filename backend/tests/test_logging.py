@@ -95,6 +95,16 @@ def test_masks_sensitive_keys_and_known_secrets() -> None:
     assert SECRET not in stream.getvalue()
 
 
+def test_counts_and_key_aliases_are_not_masked() -> None:
+    stream = io.StringIO()
+    configure_logging(settings(), stream=stream)
+    get_logger().info("call", input_tokens=120, key_alias="key-2", api_key="key-2x", token=None)
+    (record,) = json_lines(stream)
+    assert (record["input_tokens"], record["key_alias"]) == (120, "key-2")
+    assert record["api_key"] == "[REDACTED]"
+    assert record["token"] is None
+
+
 def test_bodies_are_omitted_by_default() -> None:
     stream = io.StringIO()
     configure_logging(settings(), stream=stream)
