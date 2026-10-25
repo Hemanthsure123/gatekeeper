@@ -1,6 +1,7 @@
 """``gatekeeper`` command line (argparse; installed as a console script).
 
-    gatekeeper fetch-pr <https-url | owner/name#number>   process inline, no queue
+    gatekeeper fetch-pr <https-url | owner/name#number> [--json]  review inline, no queue
+    gatekeeper show <analysis_id> [--json]                print a stored analysis
     gatekeeper enqueue-pr <https-url | owner/name#number> put a process_pr job on the queue
     gatekeeper audit <run_id>                             print events and verify the chain
     gatekeeper jobs [--limit N]                           list recent jobs
@@ -14,12 +15,14 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from typing import Any
 from uuid import UUID
 
 from gatekeeper.api.webhooks import PrJob
 from gatekeeper.audit import AuditReader
 from gatekeeper.config import Settings, get_settings
-from gatekeeper.db.session import create_db_engine, create_session_factory
+from gatekeeper.db.models import Analysis
+from gatekeeper.db.session import create_db_engine, create_session_factory, session_scope
 from gatekeeper.errors import GatekeeperError
 from gatekeeper.logging import configure_logging
 from gatekeeper.pipeline.process_pr import PrRef, Services, process_pr
@@ -33,6 +36,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     fetch = commands.add_parser("fetch-pr", help="fetch and process a pull request inline")
     fetch.add_argument("pr", help="https://github.com/owner/name/pull/N or owner/name#N")
+    fetch.add_argument("--json", action="store_true", help="print the stored result as JSON")
+    show = commands.add_parser("show", help="print a stored analysis")
+    show.add_argument("analysis_id", type=UUID, help="the analysis id (UUID)")
+    show.add_argument("--json", action="store_true", help="print the stored result as JSON")
     enqueue = commands.add_parser("enqueue-pr", help="queue a pull request for the worker")
     enqueue.add_argument("pr", help="https://github.com/owner/name/pull/N or owner/name#N")
     audit = commands.add_parser("audit", help="print a run's audit events and verify its chain")
@@ -54,15 +61,83 @@ def _queue(settings: Settings) -> JobQueue:
     return JobQueue(factory, lease_s=settings.job_lease_s, max_attempts=settings.job_max_attempts)
 
 
-def cmd_fetch_pr(settings: Settings, text: str) -> int:
+def load_analysis(settings: Settings, analysis_id: UUID) -> dict[str, Any] | None:
+    factory = create_session_factory(create_db_engine(settings))
+    with session_scope(factory) as session:
+        row = session.get(Analysis, analysis_id)
+        if row is None:
+            return None
+        return {
+            "analysis_id": str(row.id),
+            "run_id": str(row.run_id),
+            "status": row.status,
+            "verdict": row.verdict,
+            "confidence": row.confidence,
+            "head_sha": row.head_sha,
+            "model": row.model,
+            "error_code": row.error_code,
+            "result": row.result or {},
+        }
+
+
+def format_analysis(summary: dict[str, Any]) -> str:
+    result: dict[str, Any] = summary.get("result") or {}
+    confidence = summary.get("confidence")
+    lines = [
+        f"Verdict:    {summary.get('verdict') or '-'} ({summary['status']})",
+        f"Confidence: {confidence:.2f}" if confidence is not None else "Confidence: -",
+    ]
+    if result.get("abstain_reason"):
+        lines.append(f"Abstained:  {result['abstain_reason']}")
+    if result.get("downgrade_reason"):
+        lines.append(f"Downgraded: {result.get('model_verdict')} -> {result['downgrade_reason']}")
+    if summary.get("error_code"):
+        lines.append(f"Error:      {summary['error_code']}")
+    evidence = result.get("evidence") or []
+    dropped = result.get("dropped_evidence_count", 0)
+    lines.append(f"Evidence ({len(evidence)} verified, {dropped} dropped):")
+    for item in evidence:
+        span = (
+            f"L{item['line_start']}"
+            if item["line_start"] == item["line_end"]
+            else f"L{item['line_start']}-L{item['line_end']}"
+        )
+        lines.append(f"  - {item['path']}:{span} [{item['polarity']}] {item['claim']}")
+    lines.append("Signals:")
+    for signal in result.get("signals") or []:
+        truncated = signal["id"] == "truncated_input" and signal["value"]
+        if signal["direction"] != "neutral" or truncated:
+            lines.append(f"  - {signal['id']} ({signal['direction']}): {signal['explanation']}")
+    latency = result.get("latency_ms")
+    lines.append(
+        f"Model:      {summary.get('model') or '-'}"
+        + (f", {latency / 1000:.1f} s" if latency else "")
+        + (" (cache hit)" if result.get("cache_hit") else "")
+    )
+    lines.append(f"Run:        {summary['run_id']}  (gatekeeper audit {summary['run_id']})")
+    lines.append(f"Analysis:   {summary['analysis_id']}")
+    if result.get("reply_draft"):
+        lines.append("\nReply draft (not posted):\n" + result["reply_draft"])
+    return "\n".join(lines)
+
+
+def _print_analysis(settings: Settings, analysis_id: UUID, as_json: bool) -> int:
+    summary = load_analysis(settings, analysis_id)
+    if summary is None:
+        print(f"No analysis {analysis_id}.", file=sys.stderr)
+        return 1
+    print(json.dumps(summary, indent=2, sort_keys=True) if as_json else format_analysis(summary))
+    return 0
+
+
+def cmd_fetch_pr(settings: Settings, text: str, as_json: bool = False) -> int:
     ref = PrRef.parse(text)
     if not _allowed(settings, ref):
         return 1
     result = process_pr(Services.from_settings(settings), ref, trigger="cli")
-    print(f"analysis_id: {result.analysis_id}")
-    print(f"run_id:      {result.run_id}")
-    print(f"status:      {result.status}")
-    return 0
+    if result.skipped and not as_json:
+        print(f"Content unchanged since analysis {result.analysis_id}; showing it.\n")
+    return _print_analysis(settings, result.analysis_id, as_json)
 
 
 def cmd_enqueue_pr(settings: Settings, text: str) -> int:
@@ -118,7 +193,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = get_settings()
         configure_logging(settings)
         if args.command == "fetch-pr":
-            return cmd_fetch_pr(settings, args.pr)
+            return cmd_fetch_pr(settings, args.pr, args.json)
+        if args.command == "show":
+            return _print_analysis(settings, args.analysis_id, args.json)
         if args.command == "enqueue-pr":
             return cmd_enqueue_pr(settings, args.pr)
         if args.command == "audit":

@@ -16,7 +16,9 @@ import gatekeeper.pipeline.steps
 import gatekeeper.review_core
 
 FORBIDDEN_MODULE = "gatekeeper.identity"
-FORBIDDEN_NAMES = frozenset({"ItemAuthor"})
+FORBIDDEN_NAMES = frozenset(
+    {"ItemAuthor", "AuthorInfo", "get_author", "save_author", "scrub_content"}
+)
 FORBIDDEN_TABLE = "item_authors"
 
 
@@ -60,7 +62,7 @@ def test_guarded_modules_exist() -> None:
     assert any(f.parent.name == "review_core" for f in files)
 
 
-@pytest.mark.parametrize("path", guarded_files(), ids=lambda p: p.name)
+@pytest.mark.parametrize("path", guarded_files(), ids=lambda p: f"{p.parent.name}/{p.name}")
 def test_review_code_never_touches_identity(path: Path) -> None:
     assert violations(path.read_text(encoding="utf-8"), str(path)) == []
 
@@ -72,6 +74,8 @@ def test_review_code_never_touches_identity(path: Path) -> None:
         "from gatekeeper.identity import get_author",
         "from gatekeeper import identity",
         "from gatekeeper.db.models import ItemAuthor",
+        "from gatekeeper.github.normalize import AuthorInfo",
+        "from gatekeeper.identity.scrub import scrub_content",
         "from gatekeeper.db import *",
         "import gatekeeper.db.models as m\nm.ItemAuthor",
         "q = 'SELECT login FROM item_authors'",

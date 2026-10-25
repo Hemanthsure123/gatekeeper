@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Final, Literal, cast
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -95,7 +95,7 @@ def review_result_model(max_evidence: int) -> type[ReviewResult]:
         __base__=ReviewResult,
         evidence=(list[Evidence], Field(default_factory=list, max_length=max_evidence)),
     )
-    return cast(type[ReviewResult], model)
+    return model
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,9 @@
-"""The ``process_pr`` job: fetch -> normalise -> store -> analysis + audit run -> steps.
+"""The ``process_pr`` job: fetch -> normalise -> scrub identity -> store -> analysis +
+audit run -> review steps -> stored result.
 
-Each run creates a new ``analyses`` row; earlier analyses are never changed. The item's
-content is updated to the latest snapshot, and the intake event records which head
-commit and content hash this run saw.
+Each run creates a new ``analyses`` row; earlier analyses are never changed. If the
+scrubbed content hash and pipeline version match the item's latest completed or
+abstained analysis, nothing new is created (skip-unchanged).
 """
 
 from __future__ import annotations
@@ -28,13 +29,13 @@ from gatekeeper.github.normalize import content_hash, normalize_pull
 from gatekeeper.identity import save_author
 from gatekeeper.identity.scrub import forbidden_terms, scrub_content
 from gatekeeper.logging import get_logger, log_context
+from gatekeeper.models.adapter import ModelAdapter
+from gatekeeper.models.factory import get_backend
 from gatekeeper.pipeline.core import ItemView, Pipeline, PipelineContext, Step
-from gatekeeper.pipeline.steps import STUB_STEPS
+from gatekeeper.pipeline.steps import REVIEW_STEPS
 from gatekeeper.pipeline.version import PIPELINE_VERSION
 from gatekeeper.queue.jobs import ClaimedJob
 from gatekeeper.queue.worker import Handler, JobContext
-
-STUB_RESULT: Final = {"stub": True}
 
 _URL = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)/?(?:[?#].*)?$")
 _SHORT = re.compile(r"^([^/\s#]+)/([^/\s#]+)#(\d+)$")
@@ -102,6 +103,13 @@ class Services:
     session_factory: sessionmaker[Session]
     recorder: AuditRecorder
     github: GitHubReader
+    #: Built lazily on first use (a diff that is too large never needs a model).
+    model: ModelAdapter | None = None
+
+    def get_model(self) -> ModelAdapter:
+        if self.model is None:
+            self.model = get_backend(self.settings)
+        return self.model
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Services:
@@ -148,7 +156,7 @@ def process_pr(
     ref: PrRef,
     *,
     trigger: str,
-    steps: Sequence[Step] = STUB_STEPS,
+    steps: Sequence[Step] = REVIEW_STEPS,
     check_deadline: Callable[[], None] = lambda: None,
 ) -> ProcessResult:
     settings = services.settings
@@ -233,10 +241,20 @@ def process_pr(
             analysis_id=analysis_id,
             check_deadline=check_deadline,
             forbidden_terms=terms,
+            get_model=services.get_model,
         )
         try:
             Pipeline(steps).run(ctx)
-            run.end(status="completed", payload={"result": STUB_RESULT})
+            review_state = ctx.state
+            final_status = (
+                AnalysisStatus(review_state.status)
+                if review_state.result
+                else AnalysisStatus.COMPLETED
+            )
+            run.end(
+                status=final_status.value,
+                payload={"verdict": review_state.verdict, "confidence": review_state.confidence},
+            )
         except Exception as exc:
             code = exc.code if isinstance(exc, GatekeeperError) else "internal_error"
             try:
@@ -250,14 +268,26 @@ def process_pr(
             log.warning("pipeline failed", code=code)
             raise
 
+        result = review_state.result or {}
         _finish_analysis(
             services.session_factory,
             analysis_id,
-            AnalysisStatus.COMPLETED,
-            result=dict(STUB_RESULT),
+            final_status,
+            result=result,
+            verdict=review_state.verdict,
+            confidence=review_state.confidence,
+            model=result.get("model"),
+            prompt_version=result.get("prompt_version"),
+            error_code=None,
         )
-        log.info("pipeline completed", analysis_id=str(analysis_id))
-    return ProcessResult(analysis_id, run_id, AnalysisStatus.COMPLETED.value)
+        log.info(
+            "pipeline finished",
+            analysis_id=str(analysis_id),
+            status=final_status.value,
+            verdict=review_state.verdict,
+            abstain_reason=result.get("abstain_reason"),
+        )
+    return ProcessResult(analysis_id, run_id, final_status.value)
 
 
 def process_pr_handler(services: Services) -> Handler:
