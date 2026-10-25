@@ -75,6 +75,12 @@ class _Scrubber:
         return self.login(text)
 
 
+def scrub_text(text: str, author: AuthorInfo | None) -> str:
+    """Scrub one piece of free text (for example a chat question) exactly like a PR
+    body: e-mail addresses, profile URLs, mentions and the author's login."""
+    return _Scrubber(author.login.strip() if author else "").prose(text)
+
+
 def scrub_content(content: ItemContent, author: AuthorInfo) -> ItemContent:
     """Return a scrubbed copy of ``content``; the input is never mutated."""
     s = _Scrubber(author.login.strip())

@@ -23,13 +23,14 @@ from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, Final
+from typing import Any, Final, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import anyio
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.sse import EventSourceResponse, format_sse_event
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
@@ -37,6 +38,7 @@ from starlette.concurrency import run_in_threadpool
 from gatekeeper.activity import TERMINAL_KINDS, ActivitySink, ActivityView, file_states, list_events
 from gatekeeper.api.webhooks import PrJob
 from gatekeeper.audit import AuditRecorder, EventType
+from gatekeeper.chat import ChatQuestion, answer_question, chat_history
 from gatekeeper.config import Settings
 from gatekeeper.db.base import utcnow
 from gatekeeper.db.models import (
@@ -45,10 +47,10 @@ from gatekeeper.db.models import (
     CommentPost,
     Event,
     Item,
-    ItemKind,
     Job,
     Repo,
 )
+from gatekeeper.db.repos import find_pr_item, latest_analysis
 from gatekeeper.db.session import session_scope
 from gatekeeper.errors import AuthenticationFailed, ConfigError, NotFoundError, PolicyViolation
 from gatekeeper.github.client import GitHubClient
@@ -202,28 +204,6 @@ def _mean(values: list[float]) -> float | None:
 
 
 # -- database reads ------------------------------------------------------------------------
-
-
-def find_item(session: Session, owner: str, name: str, number: int) -> Item | None:
-    return session.scalars(
-        select(Item)
-        .join(Repo, Repo.id == Item.repo_id)
-        .where(
-            func.lower(Repo.owner) == owner.lower(),
-            func.lower(Repo.name) == name.lower(),
-            Item.kind == ItemKind.PR.value,
-            Item.external_id == str(number),
-        )
-    ).one_or_none()
-
-
-def latest_analysis(session: Session, item_id: UUID) -> Analysis | None:
-    return session.scalars(
-        select(Analysis)
-        .where(Analysis.item_id == item_id)
-        .order_by(Analysis.created_at.desc())
-        .limit(1)
-    ).one_or_none()
 
 
 def _comment(session: Session, analysis_id: UUID) -> dict[str, Any] | None:
@@ -427,6 +407,24 @@ def metrics(session: Session, days: int) -> dict[str, Any]:
     }
 
 
+class ChatTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=4_000)
+
+
+class ChatBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=100)
+    number: int = Field(ge=1)
+    message: str = Field(min_length=1, max_length=2_000)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=50)
+    focus_path: str | None = Field(default=None, max_length=500)
+
+
 # -- router --------------------------------------------------------------------------------
 
 
@@ -465,7 +463,7 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
         if allowed:
             with session_scope(sessions) as session:
                 if "number" in parsed:
-                    item = find_item(session, owner, name, parsed["number"])
+                    item = find_pr_item(session, owner, name, parsed["number"])
                     analysis = latest_analysis(session, item.id) if item else None
                     known = analysis is not None
                     analysis_id = str(analysis.id) if analysis else None
@@ -485,7 +483,7 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
     def pull_request(owner: str, name: str, number: int) -> dict[str, Any]:
         _check_allowed(settings, owner, name)
         with session_scope(sessions) as session:
-            item = find_item(session, owner, name, number)
+            item = find_pr_item(session, owner, name, number)
             analysis = latest_analysis(session, item.id) if item else None
             if item is None or analysis is None:
                 raise NotFoundError("this pull request has not been analysed yet")
@@ -498,7 +496,7 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
         job = PrJob(owner, name, number, head_sha=None, delivery_id=None)
         dedupe = f"pr:{owner}/{name}#{number}@force:{nonce}".lower() if force else job.dedupe_key()
         with session_scope(sessions) as session:
-            item = find_item(session, owner, name, number)
+            item = find_pr_item(session, owner, name, number)
             latest = latest_analysis(session, item.id) if item else None
             pending: Analysis | None = None
             if item is not None and (force or latest is None or latest.status not in REUSABLE):
@@ -597,7 +595,7 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
     def tree(owner: str, name: str, pr: int = Query(ge=1)) -> dict[str, Any]:
         _check_allowed(settings, owner, name)
         with session_scope(sessions) as session:
-            item = find_item(session, owner, name, pr)
+            item = find_pr_item(session, owner, name, pr)
             content = ItemContent.model_validate(item.content) if item else None
         if content is not None:
             base_sha, head_sha = content.base_sha, content.head_sha
@@ -632,6 +630,39 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
     def get_metrics(days: int = Query(default=30, ge=1, le=365)) -> dict[str, Any]:
         with session_scope(sessions) as session:
             return metrics(session, days)
+
+    @router.get("/chat/history")
+    def get_chat_history(
+        owner: str = Query(max_length=100),
+        name: str = Query(max_length=100),
+        number: int = Query(ge=1),
+    ) -> dict[str, Any]:
+        _check_allowed(settings, owner, name)
+        return {"messages": chat_history(sessions, owner, name, number)}
+
+    @router.post("/chat")
+    def chat(body: ChatBody) -> dict[str, Any]:
+        """Grounded, read-only Q&A about this PR's review. It cannot trigger actions."""
+        _check_allowed(settings, body.owner, body.name)
+        reply = answer_question(
+            ChatQuestion(
+                owner=body.owner,
+                name=body.name,
+                number=body.number,
+                message=body.message,
+                history=[(turn.role, turn.content) for turn in body.history],
+                focus_path=body.focus_path,
+            ),
+            settings=settings,
+            sessions=sessions,
+            recorder=deps.recorder,
+            model=deps.model(),
+        )
+        return {
+            "answer": reply.answer,
+            "references": reply.references,
+            "message_id": str(reply.message_id),
+        }
 
     return router
 

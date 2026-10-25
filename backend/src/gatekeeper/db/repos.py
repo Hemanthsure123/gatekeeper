@@ -1,12 +1,14 @@
-"""Repository helpers for the ``repos`` table."""
+"""Lookup helpers for repos, pull request items and their analyses."""
 
 from __future__ import annotations
+
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from gatekeeper.db.models import Repo
+from gatekeeper.db.models import Analysis, Item, ItemKind, Repo
 
 
 def find_repo(session: Session, owner: str, name: str) -> Repo | None:
@@ -37,3 +39,27 @@ def get_or_create_repo(session: Session, owner: str, name: str) -> Repo:
             raise
         return winner
     return repo
+
+
+def find_pr_item(session: Session, owner: str, name: str, number: int) -> Item | None:
+    """The stored pull request item, matching owner/name in any casing."""
+    return session.scalars(
+        select(Item)
+        .join(Repo, Repo.id == Item.repo_id)
+        .where(
+            func.lower(Repo.owner) == owner.lower(),
+            func.lower(Repo.name) == name.lower(),
+            Item.kind == ItemKind.PR.value,
+            Item.external_id == str(number),
+        )
+    ).one_or_none()
+
+
+def latest_analysis(
+    session: Session, item_id: UUID, statuses: frozenset[str] | None = None
+) -> Analysis | None:
+    """The item's newest analysis, optionally only among ``statuses``."""
+    query = select(Analysis).where(Analysis.item_id == item_id)
+    if statuses is not None:
+        query = query.where(Analysis.status.in_(statuses))
+    return session.scalars(query.order_by(Analysis.created_at.desc()).limit(1)).one_or_none()

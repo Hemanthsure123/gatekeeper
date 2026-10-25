@@ -642,6 +642,113 @@ ul.plain li {
   white-space: nowrap;
 }
 
+/* chat */
+.chat-list {
+  list-style: none;
+  margin: 0 0 var(--s2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.bubble {
+  max-width: 92%;
+  padding: var(--s2) var(--s3);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--surface);
+}
+
+.bubble p:last-child,
+.bubble ul:last-child,
+.bubble ol:last-child {
+  margin-bottom: 0;
+}
+
+.bubble ul,
+.bubble ol {
+  margin: 0 0 var(--s2);
+  padding-left: var(--s4);
+}
+
+.bubble code {
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 0 var(--s1);
+}
+
+.refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+
+.chip.ref.verified {
+  border-color: var(--ok);
+}
+
+.chip.ref.unverified {
+  border-style: dashed;
+}
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-bottom: var(--s2);
+}
+
+.suggestions .chip {
+  max-width: none;
+}
+
+.focus {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-bottom: var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.focus code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-form {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-end;
+}
+
+.chat-form textarea {
+  flex: 1;
+  resize: vertical;
+  min-height: 44px;
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

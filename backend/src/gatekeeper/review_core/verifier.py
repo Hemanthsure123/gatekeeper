@@ -52,22 +52,28 @@ def _quote_text(quote: str) -> str:
     return normalize(" ".join(_RENDER_PREFIX.sub("", line) for line in quote.splitlines()))
 
 
+def check_lines(path: str, line_start: int, line_end: int, diff: DiffView) -> str | None:
+    """None if every cited line is a new-side line shown in ``diff``, else a reason code.
+    The quote check (``check_evidence``) comes on top of this."""
+    lines = diff.citable.get(path)
+    if lines is None:
+        return "no_patch" if path in diff.without_patch or path in diff.omitted else "unknown_path"
+    if line_start > line_end:
+        return "bad_range"
+    if line_end - line_start + 1 > MAX_SPAN_LINES:
+        return "span_too_long"
+    if any(lines.get(number) is None for number in range(line_start, line_end + 1)):
+        return "line_not_in_diff"
+    return None
+
+
 def check_evidence(item: Evidence, diff: DiffView) -> str | None:
     """None if the citation is valid, else a short reason code."""
-    lines = diff.citable.get(item.path)
-    if lines is None:
-        return (
-            "no_patch"
-            if item.path in diff.without_patch or item.path in diff.omitted
-            else "unknown_path"
-        )
-    if item.line_start > item.line_end:
-        return "bad_range"
-    if item.line_end - item.line_start + 1 > MAX_SPAN_LINES:
-        return "span_too_long"
+    reason = check_lines(item.path, item.line_start, item.line_end, diff)
+    if reason is not None:
+        return reason
+    lines = diff.citable[item.path]
     cited = [lines.get(number) for number in range(item.line_start, item.line_end + 1)]
-    if any(text is None for text in cited):
-        return "line_not_in_diff"
     quote = _quote_text(item.quote)
     if not quote or quote not in normalize(" ".join(text or "" for text in cited)):
         return "quote_not_found"

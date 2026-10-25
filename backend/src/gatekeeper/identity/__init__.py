@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from gatekeeper.db.models import ItemAuthor
 from gatekeeper.github.normalize import AuthorInfo
+from gatekeeper.identity.scrub import forbidden_terms, scrub_text
 
 
 def save_author(session: Session, item_id: UUID, author: AuthorInfo) -> None:
@@ -26,6 +27,17 @@ def save_author(session: Session, item_id: UUID, author: AuthorInfo) -> None:
     row.account_created_at = author.account_created_at
     row.author_association = author.author_association
     row.is_first_contribution = author.is_first_contribution
+
+
+def forbidden_terms_for_item(session: Session, item_id: UUID) -> frozenset[str]:
+    """The leak guard's opaque terms for an item (empty if no author is stored)."""
+    author = get_author(session, item_id)
+    return forbidden_terms(author) if author is not None else frozenset()
+
+
+def scrub_for_item(session: Session, item_id: UUID, text: str) -> str:
+    """Scrub free text about an item (a chat message) with that item's author."""
+    return scrub_text(text, get_author(session, item_id))
 
 
 def get_author(session: Session, item_id: UUID) -> AuthorInfo | None:
