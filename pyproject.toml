@@ -79,7 +79,7 @@ select = [
 strict = true
 python_version = "3.13"
 files = ["backend/src", "backend/tests", "backend/alembic/env.py", "scripts"]
-mypy_path = "backend/src,scripts"
+mypy_path = "backend/src,scripts,backend/tests"
 explicit_package_bases = true
 warn_unreachable = true
 
@@ -87,7 +87,7 @@ warn_unreachable = true
 minversion = "9.0"
 strict = true
 testpaths = ["backend/tests", "scripts/tests"]
-pythonpath = ["scripts"]
+pythonpath = ["scripts", "backend/tests"]
 addopts = ["-ra", "--import-mode=importlib", "--cov", "--cov-report=term-missing"]
 filterwarnings = ["error"]
 markers = [

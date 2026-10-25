@@ -22,7 +22,7 @@ def _pattern(terms: Iterable[str]) -> re.Pattern[str] | None:
     if not cleaned:
         return None
     alternatives = "|".join(re.escape(term) for term in cleaned)
-    return re.compile(rf"(?<![A-Za-z0-9-])(?:{alternatives})(?![A-Za-z0-9-])", re.IGNORECASE)
+    return re.compile(rf"(?<![A-Za-z0-9])(?:{alternatives})(?![A-Za-z0-9])", re.IGNORECASE)
 
 
 def forbidden_terms_guard(terms: Iterable[str]) -> RequestValidator:

@@ -34,7 +34,7 @@ _PRIVATE_KEY = re.compile(
 _GITHUB_TOKEN = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})\b")
 _BEARER = re.compile(r"\b([Bb]earer|BEARER)(\s+)[A-Za-z0-9\-._~+/]{16,}=*")
 _EMAIL = re.compile(
-    r"(?<![\w.+%-])(?!git@)[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"
+    r"(?<![\w.+%-])(?!git@)[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"
 )
 
 

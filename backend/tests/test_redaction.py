@@ -46,7 +46,7 @@ def test_masks_known_secret_values_longest_first() -> None:
 def test_does_not_mangle_ordinary_text() -> None:
     sample = (
         "Fixes #42: handle None in parse_config().\n"
-        "@pytest.fixture\ndef f(): return {'key': 'value', 'token_count': 3}\n"
+        "@pytest.fixture\n+@pytest.mark.slow\ndef f(): return {'key': 'value', 'token_count': 3}\n"
         "Bump actions/checkout@v7.0.1 and requests@2.32.3; see git@github.com:org/repo.git\n"
         "The bearer of bad news said ghp_short is not a token. sha 3d3c42e5aac5ba805825da76410c18\n"
         "Email us at support (at) example (dot) com. user@localhost is local. @types/node ok.\n"

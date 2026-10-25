@@ -120,4 +120,5 @@ def test_forbidden_terms_and_pattern() -> None:
     assert forbidden_terms(author()) == frozenset({LOGIN.lower()})
     pattern = login_pattern(LOGIN)
     assert pattern.search(f"hi {LOGIN.lower()}!")
-    assert not pattern.search(f"hi {LOGIN}-bot")
+    assert pattern.search(f"hi {LOGIN}-bot")
+    assert not pattern.search(f"hi {LOGIN}s")

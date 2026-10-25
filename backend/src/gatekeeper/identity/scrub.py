@@ -35,7 +35,7 @@ EMAIL: Final = "[email]"
 MIN_TEXT_LOGIN: Final = 3
 
 _EMAIL = re.compile(
-    r"(?<![\w.+%-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"
+    r"(?<![\w.+%-])[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"
 )
 _PROFILE_URL = re.compile(
     r"\bgithub\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?![A-Za-z0-9-]|/[A-Za-z0-9._-])",
@@ -46,8 +46,9 @@ _MENTION = re.compile(r"(?<![\w@./-])@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?![A-Za-
 
 
 def login_pattern(login: str) -> re.Pattern[str]:
-    """Case-insensitive whole-word match; ``-`` counts as part of a word like in logins."""
-    return re.compile(rf"(?<![A-Za-z0-9-]){re.escape(login)}(?![A-Za-z0-9-])", re.IGNORECASE)
+    """Case-insensitive match not glued to other letters or digits. ``-`` and ``_`` act
+    as separators, so ``from-<login>`` is caught; ``<login>s`` or ``x<login>`` is not."""
+    return re.compile(rf"(?<![A-Za-z0-9]){re.escape(login)}(?![A-Za-z0-9])", re.IGNORECASE)
 
 
 def forbidden_terms(author: AuthorInfo) -> frozenset[str]:
