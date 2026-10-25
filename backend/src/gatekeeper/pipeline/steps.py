@@ -242,6 +242,9 @@ class ReviewStep:
             message = "Answer reused from the cache"
         else:
             message = f"Model answered in {seconds:.1f} s"
+            alias, failovers = outcome.meta.get("key_alias"), outcome.meta.get("failovers")
+            if alias:
+                message += f" ({alias}" + (f", {failovers} failover(s))" if failovers else ")")
         ctx.emit(
             Kind.MODEL_CALL_FINISHED,
             message,

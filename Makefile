@@ -17,7 +17,7 @@ CLEAN_PY := import pathlib, shutil; \
 .DEFAULT_GOAL := help
 .PHONY: help setup check lint format typecheck test up down clean init-env env-check env-sync \
 	doctor migrate migrate-down db-reset model-check api worker relay env-set gemma-setup \
-	extension-install extension-build extension-dev
+	extension-install extension-build extension-dev dev stack
 
 help:
 	$(info Usage: make <target>)
@@ -40,7 +40,9 @@ help:
 	$(info db-reset     drop and re-create the schema, development only)
 	$(info model-check  check the model backend; ARGS=--vision also tests image input)
 	$(info gemma-setup  check Gemini API keys by alias and select the Gemma 4 models)
-	$(info api          run the webhook gateway on 127.0.0.1:8000)
+	$(info dev          run the API and one worker together (checks services and migrations))
+	$(info stack        make up, make migrate, then make dev)
+	$(info api          run the API (webhooks and the extension API) on API_HOST:API_PORT)
 	$(info worker       run one queue worker; Ctrl+C finishes the current job, then stops)
 	$(info relay        forward webhooks from WEBHOOK_PROXY_URL to the local gateway, needs Node)
 	$(info extension-install  install the extension's dev tools (npm, needs Node 20+))
@@ -124,3 +126,11 @@ extension-build:
 
 extension-dev:
 	$(UV) run --no-project python scripts/extension.py dev
+
+dev:
+	$(UV) run python scripts/dev.py
+
+stack:
+	$(MAKE) up
+	$(MAKE) migrate
+	$(MAKE) dev

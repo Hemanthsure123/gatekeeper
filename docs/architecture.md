@@ -157,3 +157,29 @@ The default backend is `gemini_api` (Gemma 4 on the Gemini API), running through
 - keys referred to only by alias.
 
 `process_pr` refuses private repositories on a hosted backend unless explicitly allowed. Ollama stays available as the local backend.
+
+## P06: side panel, activity feed, chat and the approved comment
+
+See [ADR 0007](adr/0007-extension-first-ui.md).
+
+| Piece | What it provides |
+| --- | --- |
+| `gatekeeper.activity` | A best-effort, redacted, identity-free display feed (`activity_events`). `file_states` replays it into per-file progress. The audit trail stays the source of truth. |
+| `gatekeeper.api.extension` | The bearer-protected `/api`: context, PR view, analyse, activity and SSE stream, model input, repo tree, metrics, chat, and the approved comment. |
+| `gatekeeper.chat` | Grounded, read-only chat (prompt `chat.pr` v1). Questions are scrubbed through `gatekeeper.identity`; references are checked against the diff. |
+| `extension/` | The Chromium side panel (Activity, Chat, Insights), a background worker for tab routing, and a DOM-only content script for revealing diffs. |
+
+The pipeline emits these activity events from real work only:
+
+- `run_started`;
+- `step_started` and `step_finished`;
+- `files_listed`, `file_signal`, `file_context`, `signals_summary`;
+- `model_call_started` and `model_call_finished`;
+- `file_cited`, then `citation_verified` or `citation_dropped`;
+- `confidence_computed`, `verdict`, `abstained`;
+- `awaiting_approval`;
+- `run_finished` or `run_failed`.
+
+The panel reads them over SSE (fetch streaming, because EventSource cannot send an Authorization header) and plays them back about 120 ms apart.
+
+GitHub writes: exactly one, `create_issue_comment`, behind `allow_write=True`. Only the approved-comment endpoint calls it.

@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- P06: Chromium side-panel extension (`extension/`) with Activity, Chat and Insights tabs:
+  - a live repo tree with per-file stages, a timeline and a "Now:" line;
+  - a file drawer, and revealing files and line ranges in GitHub's Files changed page;
+  - an options page with a connection test.
+- Live activity feed (`activity_events`, `gatekeeper.activity`), instrumented in every pipeline step.
+- Bearer-protected extension API under `/api`:
+  - context, PR view, analyse (with force), activity and an SSE stream;
+  - model input, repo tree and metrics;
+  - chat and its history;
+  - the approved comment.
+- Grounded, read-only chat (`gatekeeper.chat`, prompt `chat.pr` v1).
+- The only GitHub write, `create_issue_comment`: approval-gated, idempotent, audited before and after.
+- New commands: `make dev`, `make stack`, `make extension-install`, `make extension-build` and `make extension-dev`.
+- New settings: `API_HOST`, `API_PORT`, `TREE_MAX_ENTRIES`, `CHAT_MAX_HISTORY`, `CHAT_MAX_OUTPUT_TOKENS` and `COMMENT_MAX_CHARS`.
+- Migration 0005, ADR 0007, `docs/WALKTHROUGH.md`, and a README rewritten for the hackathon.
 - P05: hosted Gemma 4 through the Gemini API as the default backend.
 - Rotating Gemini key pool (`GEMINI_API_KEYS`) with cooldowns, failover, dead-key handling and key redaction.
 - `make gemma-setup` and `make env-set`.

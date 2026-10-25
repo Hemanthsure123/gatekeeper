@@ -59,7 +59,9 @@ g. **No secrets in code, logs, tests or fixtures.** You may change non-secret se
 | `make db-reset` | downgrade to base and upgrade to head; refuses unless `APP_ENV=development` |
 | `make gemma-setup` | check every Gemini key by alias, pick the Gemma 4 model ids, set MODEL_BACKEND |
 | `make model-check` | backend health, capabilities, two structured calls (2nd = cache hit); `ARGS=--vision` tests image input (warning only), `ARGS=--require-vision` makes it fatal |
-| `make api` / `make worker` / `make relay` | webhook gateway on 127.0.0.1:8000 / one queue worker / smee relay from WEBHOOK_PROXY_URL |
+| `make dev` / `make stack` | API + one worker with prefixed logs, after checking Postgres, Redis and migrations / `make up`, `make migrate`, `make dev` |
+| `make api` / `make worker` / `make relay` | API (webhooks + extension API under `/api`) on API_HOST:API_PORT / one queue worker / smee relay from WEBHOOK_PROXY_URL |
+| `make extension-install` / `make extension-build` / `make extension-dev` | npm dev tools / build `extension/dist` (icons, type check, Vite) / rebuild on change |
 | `uv run gatekeeper whoami\|discover-repo\|list-prs` | check GitHub credentials, set the allowlist, list open PRs (read-only) |
 | `uv run gatekeeper fetch-pr\|enqueue-pr\|show\|audit\|jobs` | review a PR inline (`--json`), queue it, print a stored analysis, inspect a run's audit chain, list jobs |
 | `make doctor` | tool versions and Ollama status; never reads `.env` |
