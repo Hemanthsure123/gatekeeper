@@ -50,6 +50,12 @@ ACTIVE_JOB_STATUSES: Final = ("queued", "running")
 DELIVERY_STATUSES: Final = ("received", "queued", "ignored", "enqueue_failed")
 
 
+class Verdict(StrEnum):
+    LOOKS_VALUABLE = "looks_valuable"
+    NEEDS_HUMAN_LOOK = "needs_human_look"
+    LIKELY_LOW_VALUE = "likely_low_value"
+
+
 class AnalysisStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -186,6 +192,8 @@ class Analysis(UuidPrimaryKey, CreatedAt, Base):
             "finished_at IS NULL OR started_at IS NULL OR finished_at >= started_at",
             name="finished_after_started",
         ),
+        CheckConstraint(_in("verdict", [v.value for v in Verdict]), name="verdict"),
+        Index("ix_analyses_item_id_created_at", "item_id", "created_at"),
     )
 
     item_id: Mapped[uuid.UUID] = mapped_column(
@@ -203,6 +211,10 @@ class Analysis(UuidPrimaryKey, CreatedAt, Base):
     error_code: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
+    #: Denormalised from the run for listing and skip-unchanged checks.
+    head_sha: Mapped[str | None] = mapped_column(Text)
+    content_hash: Mapped[str | None] = mapped_column(Text)
+    verdict: Mapped[str | None] = mapped_column(Text)
 
 
 class Event(CreatedAt, Base):

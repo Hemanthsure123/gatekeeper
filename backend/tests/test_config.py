@@ -214,3 +214,15 @@ def test_p03_defaults() -> None:
     assert (settings.job_timeout_s, settings.worker_poll_interval_s) == (1800, 1)
     assert (settings.job_lease_s, settings.job_max_attempts) == (120, 3)
     assert (settings.diff_max_bytes, settings.pr_max_files) == (300_000, 300)
+
+
+def test_review_defaults_and_derived_diff_budget() -> None:
+    settings = load()
+    assert (settings.review_abstain_threshold, settings.review_negative_min_confidence) == (
+        0.6,
+        0.75,
+    )
+    assert (settings.review_max_evidence, settings.review_max_output_tokens) == (5, 800)
+    assert settings.review_diff_budget() == 16_384 - 800 - 2_048
+    assert load(ollama_num_ctx="8192").review_diff_budget() == 8_192 - 800 - 2_048
+    assert load(review_diff_token_budget="5000").review_diff_budget() == 5_000

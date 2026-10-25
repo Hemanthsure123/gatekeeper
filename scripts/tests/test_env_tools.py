@@ -25,7 +25,7 @@ def run(root: Path, command: str) -> int:
 
 def test_repo_template_assigns_every_key_to_a_prompt() -> None:
     keys = env_tools.parse_template((REPO_ROOT / ".env.example").read_text(encoding="utf-8"))
-    assert len(keys) == 39
+    assert len(keys) == 44
     assert all(key.prompt != env_tools.UNASSIGNED for key in keys)
     assert {k.name for k in keys if k.optional} == {
         "GEMINI_API_KEY",
@@ -47,6 +47,11 @@ def test_repo_template_assigns_every_key_to_a_prompt() -> None:
         "JOB_MAX_ATTEMPTS",
         "DIFF_MAX_BYTES",
         "PR_MAX_FILES",
+        "REVIEW_ABSTAIN_THRESHOLD",
+        "REVIEW_NEGATIVE_MIN_CONFIDENCE",
+        "REVIEW_MAX_EVIDENCE",
+        "REVIEW_MAX_OUTPUT_TOKENS",
+        "REVIEW_DIFF_TOKEN_BUDGET",
     }
     assert {k.name for k in keys if k.prompt == "P01"} == {
         "APP_ENV",
@@ -80,7 +85,7 @@ def test_check_groups_by_prompt_and_never_prints_values(
     assert "MISSING  DATABASE_URL" in out
     assert "MISSING  HF_TOKEN  (optional)" in out
     assert "In .env but not in .env.example: EXTRA_KEY" in out
-    assert "2 set, 37 missing (19 of them optional)." in out
+    assert "2 set, 42 missing (24 of them optional)." in out
 
 
 def test_check_requires_env(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -102,14 +107,14 @@ def test_sync_appends_only_missing_keys_and_preserves_existing(
     assert run(root, "sync") == 0
     out = capsys.readouterr().out
     assert SENTINEL not in out
-    assert "Appended 37 key(s)" in out
+    assert "Appended 42 key(s)" in out
 
     content = env_file.read_text(encoding="utf-8")
     assert content.startswith(original + "\n")
     status = env_tools.parse_env_status(content)
     assert status["DATABASE_URL"] is True
     assert status["HF_TOKEN"] is False
-    assert len(status) == 40  # 39 template keys + CUSTOM
+    assert len(status) == 45  # 44 template keys + CUSTOM
 
     assert run(root, "sync") == 0
     assert "nothing changed" in capsys.readouterr().out

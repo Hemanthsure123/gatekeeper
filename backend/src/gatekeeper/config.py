@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
@@ -25,6 +25,10 @@ from gatekeeper.errors import ConfigError
 AppEnv = Literal["development", "test", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 ModelBackend = Literal["ollama", "gemini_api", "vllm"]
+
+#: Upper bound (in the adapter's conservative token estimate) for everything in the
+#: review prompt except title, body and diff. A test keeps the real template under it.
+REVIEW_PROMPT_OVERHEAD_TOKENS: Final = 2_048
 
 _HTTP = frozenset({"http", "https"})
 _POSTGRES = frozenset({"postgresql", "postgresql+psycopg", "postgres"})
@@ -111,6 +115,13 @@ class Settings(BaseSettings):
     diff_max_bytes: int = Field(default=300_000, ge=1_000)
     pr_max_files: int = Field(default=300, ge=1, le=3_000)
 
+    # P04: review core. Optional, non-secret; empty or missing uses the default.
+    review_abstain_threshold: float = Field(default=0.6, ge=0, le=1)
+    review_negative_min_confidence: float = Field(default=0.75, ge=0, le=1)
+    review_max_evidence: int = Field(default=5, ge=1, le=20)
+    review_max_output_tokens: int = Field(default=800, ge=64, le=8_192)
+    review_diff_token_budget: int | None = Field(default=None, ge=256)
+
     # P07 / P14 / P16
     hf_token: SecretStr | None = None
     gatekeeper_admin_token: SecretStr | None = None
@@ -185,6 +196,20 @@ class Settings(BaseSettings):
         if not self.allowed_repos:
             return self.app_env != "production"
         return f"{owner}/{name}".lower() in self.allowed_repos
+
+    def review_diff_budget(self) -> int:
+        """Token budget for the rendered diff in the review prompt.
+
+        Default: OLLAMA_NUM_CTX minus REVIEW_MAX_OUTPUT_TOKENS minus
+        REVIEW_PROMPT_OVERHEAD_TOKENS (system text, JSON schema, template and signal
+        summary). The review step also subtracts the title and body estimate per item.
+        """
+        if self.review_diff_token_budget is not None:
+            return self.review_diff_token_budget
+        derived = (
+            self.ollama_num_ctx - self.review_max_output_tokens - REVIEW_PROMPT_OVERHEAD_TOKENS
+        )
+        return max(256, derived)
 
     def require(self, *keys: str) -> None:
         """Raise ConfigError naming every key in ``keys`` that is not set. Never shows values."""

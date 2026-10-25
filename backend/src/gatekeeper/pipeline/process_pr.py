@@ -29,10 +29,10 @@ from gatekeeper.identity import save_author
 from gatekeeper.logging import get_logger, log_context
 from gatekeeper.pipeline.core import ItemView, Pipeline, PipelineContext, Step
 from gatekeeper.pipeline.steps import STUB_STEPS
+from gatekeeper.pipeline.version import PIPELINE_VERSION
 from gatekeeper.queue.jobs import ClaimedJob
 from gatekeeper.queue.worker import Handler, JobContext
 
-PIPELINE_VERSION: Final = "p03-stub-1"
 STUB_RESULT: Final = {"stub": True}
 
 _URL = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)/?(?:[?#].*)?$")
@@ -67,6 +67,32 @@ class ProcessResult:
     analysis_id: UUID
     run_id: UUID
     status: str
+    #: True when the content was unchanged and an existing analysis was reused.
+    skipped: bool = False
+
+
+#: Statuses whose analysis can be reused when nothing changed.
+REUSABLE_STATUSES: Final = frozenset(
+    {AnalysisStatus.COMPLETED.value, AnalysisStatus.ABSTAINED.value}
+)
+
+
+def reusable_analysis(session: Session, item_id: UUID, digest: str) -> Analysis | None:
+    """The item's latest analysis, if it saw the same content with this pipeline version."""
+    latest = session.scalars(
+        select(Analysis)
+        .where(Analysis.item_id == item_id)
+        .order_by(Analysis.created_at.desc())
+        .limit(1)
+    ).one_or_none()
+    if (
+        latest is not None
+        and latest.content_hash == digest
+        and latest.pipeline_version == PIPELINE_VERSION
+        and latest.status in REUSABLE_STATUSES
+    ):
+        return latest
+    return None
 
 
 @dataclass
@@ -156,12 +182,22 @@ def process_pr(
             session, repo.id, ref.number, content.model_dump(mode="json"), digest, state
         )
         save_author(session, item.id, author)
+        previous = reusable_analysis(session, item.id, digest)
+        if previous is not None:
+            log.info(
+                "content unchanged since the last analysis; skipping",
+                analysis_id=str(previous.id),
+                pipeline_version=PIPELINE_VERSION,
+            )
+            return ProcessResult(previous.id, previous.run_id, previous.status, skipped=True)
         analysis = Analysis(
             item_id=item.id,
             run_id=run_id,
             pipeline_version=PIPELINE_VERSION,
             status=AnalysisStatus.RUNNING.value,
             started_at=utcnow(),
+            head_sha=content.head_sha,
+            content_hash=digest,
         )
         session.add(analysis)
         session.flush()

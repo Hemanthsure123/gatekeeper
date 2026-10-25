@@ -208,3 +208,26 @@ def test_queue_handler_runs_the_pipeline(session_factory: sessionmaker[Session])
     assert analysis.status == "completed"
     start = AuditReader(session_factory).get_events(analysis.run_id)[0]
     assert start.payload["trigger"] == "webhook:d-9"
+
+
+@pytest.mark.integration
+def test_unchanged_content_reuses_the_latest_analysis(
+    session_factory: sessionmaker[Session],
+) -> None:
+    ref = PrRef("octo", "play", 45)
+    first = process_pr(make_services(session_factory), ref, trigger="test")
+    again = process_pr(make_services(session_factory), ref, trigger="test")
+    assert (again.skipped, again.analysis_id, again.run_id) == (
+        True,
+        first.analysis_id,
+        first.run_id,
+    )
+    with session_scope(session_factory) as session:
+        analysis = session.get(Analysis, first.analysis_id)
+        assert analysis is not None
+        assert (analysis.head_sha, analysis.pipeline_version) == ("f" * 40, "1")
+        assert analysis.content_hash is not None
+    changed = process_pr(
+        make_services(session_factory, FakeGitHub(head_sha="d" * 40)), ref, trigger="test"
+    )
+    assert changed.skipped is False
