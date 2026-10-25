@@ -143,6 +143,14 @@ class ModelAdapter:
     def model_name(self, role: ModelRole = ModelRole.PRIMARY) -> str:
         return self._driver.model_for(role)
 
+    def with_validators(self, *validators: RequestValidator) -> ModelAdapter:
+        """A copy with extra validators (for example a per-run leak guard). Shares the
+        driver, cache and concurrency limit; this adapter is not changed."""
+        copy = ModelAdapter.__new__(ModelAdapter)
+        copy.__dict__.update(self.__dict__)
+        copy._validators = [*self._validators, *validators]
+        return copy
+
     def add_validator(self, validator: RequestValidator) -> None:
         """Register a pre-send check. It may raise PolicyViolation to block the call."""
         self._validators.append(validator)
