@@ -98,9 +98,10 @@ def test_banned_words_replace_the_model_note(note: str) -> None:
     assert not contains_banned(text)
 
 
-def test_banned_claims_are_dropped() -> None:
-    text = reply(evidence=[evidence("Pure garbage."), evidence("Adds a test.")])
-    assert "garbage" not in text.lower()
+def test_only_the_model_note_is_filtered() -> None:
+    claim = "Fixes the reply command of the chat bot."
+    text = reply(evidence=[evidence(claim), evidence("Adds a test.")], contributor_note="")
+    assert claim in text
     assert "Adds a test." in text
 
 

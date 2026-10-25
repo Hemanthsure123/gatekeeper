@@ -31,6 +31,7 @@ class ErrorCode(StrEnum):
     AUTHENTICATION_FAILED = "authentication_failed"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     JOB_TIMEOUT = "job_timeout"
+    IDENTITY_LEAK_BLOCKED = "identity_leak_blocked"
 
 
 class GatekeeperError(Exception):
@@ -178,3 +179,9 @@ class JobTimeout(_CodedError):  # noqa: N818 - matches the other error names
 
     error_code = ErrorCode.JOB_TIMEOUT
     default_retryable = True
+
+
+class IdentityLeakBlocked(PolicyViolation):
+    """The leak guard found a forbidden identity term in model input. Never retried."""
+
+    error_code = ErrorCode.IDENTITY_LEAK_BLOCKED

@@ -167,7 +167,7 @@ def typo_scale(inp: SignalInput) -> SignalResult:
         return _result(
             "typo_scale",
             chars,
-            "negative",
+            "neutral",
             "low",
             f"Only about {chars} character(s) of documentation changed.",
         )

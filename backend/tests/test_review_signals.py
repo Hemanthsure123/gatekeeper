@@ -60,7 +60,8 @@ def test_docs_only_and_typo_scale() -> None:
     inp = SignalInput(item_content([typo]))
     assert signal("docs_only", inp).value is True
     result = signal("typo_scale", inp)
-    assert (result.direction, result.severity) == ("negative", "low")
+    assert (result.direction, result.severity) == ("neutral", "low")
+    assert result.explanation.startswith("Only about")
     assert int(result.value) <= 4
     assert signal("typo_scale", SignalInput(item_content())).direction == "neutral"
 

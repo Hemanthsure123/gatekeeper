@@ -7,8 +7,10 @@ import shutil
 import socket
 import sys
 import threading
+import urllib.error
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -99,7 +101,17 @@ def test_bad_payload_is_a_warning(
     assert not doctor.ollama_check(url).ok
 
 
-def test_unreachable_ollama_is_a_warning() -> None:
+def refuse_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail fast: a real closed port takes ~2 s per attempt on Windows."""
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise urllib.error.URLError(ConnectionRefusedError("refused"))
+
+    monkeypatch.setattr(doctor.urllib.request, "urlopen", refuse)
+
+
+def test_unreachable_ollama_is_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    refuse_connections(monkeypatch)
     check = doctor.ollama_check(closed_port_url())
     assert not check.ok
     assert "no response" in check.detail
@@ -122,8 +134,34 @@ def test_main_never_crashes_when_everything_is_missing(
 ) -> None:
     monkeypatch.setattr(shutil, "which", lambda _name: None)
     monkeypatch.setenv("OLLAMA_BASE_URL", closed_port_url())
+    monkeypatch.setenv("MODEL_BACKEND", "ollama")
+    refuse_connections(monkeypatch)
     assert doctor.main() == 0
     out = capsys.readouterr().out
     assert "[WARN] git" in out
     assert "[WARN] ollama api" in out
     assert "warning(s)." in out
+
+
+def test_ollama_is_info_when_another_backend_is_active(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    monkeypatch.setenv("MODEL_BACKEND", "gemini_api")
+    refuse_connections(monkeypatch)
+    doctor.main()
+    out = capsys.readouterr().out
+    assert "Model backend: gemini_api" in out
+    assert "[info] ollama api" in out
+    assert "[info] ollama " in out
+    assert "[WARN] ollama" not in out
+
+
+def test_model_backend_reads_only_that_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("MODEL_BACKEND", raising=False)
+    env = tmp_path / ".env"
+    env.write_text("SECRET_THING=abc\nMODEL_BACKEND=gemini_api\n", encoding="utf-8")
+    assert doctor.model_backend(env) == "gemini_api"
+    assert doctor.model_backend(tmp_path / "missing.env") == "ollama"
+    monkeypatch.setenv("MODEL_BACKEND", "Ollama")
+    assert doctor.model_backend(env) == "ollama"

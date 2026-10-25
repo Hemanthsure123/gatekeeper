@@ -2,7 +2,8 @@
 
 ``forbidden_terms_guard`` is defence in depth behind the identity scrub: it rejects any
 request whose system text or text parts contain a forbidden term (case-insensitive,
-whole word), with PolicyViolation, before the backend is called. Callers hand it an
+whole word), with IdentityLeakBlocked (a PolicyViolation, code ``identity_leak_blocked``),
+before the backend is called. Callers hand it an
 opaque set of strings; the guard does not know or log what they are.
 """
 
@@ -12,7 +13,7 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
-from gatekeeper.errors import PolicyViolation
+from gatekeeper.errors import IdentityLeakBlocked
 from gatekeeper.models.adapter import RequestValidator
 from gatekeeper.models.types import ModelRequest
 
@@ -33,7 +34,7 @@ def forbidden_terms_guard(terms: Iterable[str]) -> RequestValidator:
             return
         for text in (request.system, *request.text_parts):
             if pattern.search(text):
-                raise PolicyViolation(
+                raise IdentityLeakBlocked(
                     "model request blocked: it contains a forbidden term (identity leak guard)",
                     details={"prompt_id": request.prompt_id},
                 )

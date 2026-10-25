@@ -4,10 +4,11 @@ Structure: a fixed neutral summary line, up to three verified evidence bullets w
 ``path:lines``, concrete suggestions derived from signals, and the model's contributor
 note if it passes the safety filter. Abstained results say a maintainer will take a look.
 
-Safety filter: every contributor-facing string is checked against ``BANNED_WORDS``
-(words that accuse or label people). A hit drops that string; a hit in the model's note
-replaces it with a neutral template. ``@mentions`` are defused so a later post never
-pings anyone.
+Safety filter: the model-authored free text (the contributor note) is checked against
+``BANNED_WORDS`` (words that accuse or label people); a hit replaces it with a neutral
+template. Fixed wording, file paths and diff-derived text are not scanned (they would
+only cause false hits, e.g. a file named ``bot.py``). ``@mentions`` are defused
+everywhere so a later post never pings anyone.
 """
 
 from __future__ import annotations
@@ -68,12 +69,17 @@ def contains_banned(text: str) -> bool:
     return _BANNED.search(text) is not None
 
 
-def _safe(text: str) -> str | None:
-    """The text with mentions defused, or None if it trips the banned-word filter."""
-    text = text.strip()
-    if not text or contains_banned(text):
+def defuse_mentions(text: str) -> str:
+    return _MENTION.sub("@\u200b", text)
+
+
+def safe_note(note: str) -> str | None:
+    """The model's contributor note, mentions defused; the neutral template if it trips
+    the banned-word filter; None if empty."""
+    note = note.strip()[:MAX_NOTE_CHARS]
+    if not note:
         return None
-    return _MENTION.sub("@​", text)
+    return NEUTRAL_NOTE if contains_banned(note) else defuse_mentions(note)
 
 
 def suggestions(signals: Sequence[SignalResult]) -> list[str]:
@@ -111,25 +117,16 @@ def compose_reply(
         parts.append(f"**{SUMMARY[verdict]}.**")
 
     bullets = []
-    for item in evidence:
-        claim = _safe(item.claim)
-        if claim is not None:
-            bullets.append(f"- `{_lines(item)}`: {claim}")
-        if len(bullets) == MAX_BULLETS:
-            break
+    for item in evidence[:MAX_BULLETS]:
+        bullets.append(f"- `{_lines(item)}`: {defuse_mentions(item.claim.strip())}")
     if bullets:
         parts.append("What we looked at:\n" + "\n".join(bullets))
 
-    tips = [tip for tip in suggestions(signals) if _safe(tip) is not None]
+    tips = suggestions(signals)
     if tips:
         parts.append("Suggestions:\n" + "\n".join(f"- {tip}" for tip in tips))
 
-    note = _safe(contributor_note[:MAX_NOTE_CHARS]) if contributor_note else None
-    if contributor_note and note is None:
-        note = NEUTRAL_NOTE
+    note = safe_note(contributor_note)
     if note:
         parts.append(note)
-    draft = "\n\n".join(parts)
-    if contains_banned(draft):  # pragma: no cover - fixed strings are clean; tripwire only
-        return f"**{SUMMARY['needs_human_look']}.** {ABSTAIN_LINE}"
-    return draft
+    return "\n\n".join(parts)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from gatekeeper.errors import PolicyViolation
+from gatekeeper.errors import IdentityLeakBlocked, PolicyViolation
 from gatekeeper.models.guards import forbidden_terms_guard
 from gatekeeper.models.testing import fake_adapter
 from gatekeeper.models.types import ModelRequest, TextPart
@@ -36,6 +36,8 @@ def test_rejects_forbidden_terms_before_any_backend_call(text: str, system: str)
         guarded.generate(request(text, system), allow_unaudited=True)
     assert fake.calls == []
     assert "synth-dev" not in caught.value.message.lower()
+    assert isinstance(caught.value, IdentityLeakBlocked)
+    assert (caught.value.code, caught.value.retryable) == ("identity_leak_blocked", False)
 
 
 def test_allows_clean_text_and_partial_words() -> None:

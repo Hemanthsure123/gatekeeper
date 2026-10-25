@@ -30,6 +30,7 @@ P04 replaces the stub steps with a real PR review. Local inference runs on a CPU
 
 - Ten small rules over identity-free inputs only: tiny_change, whitespace_only, docs_only, typo_scale, tests_touched, ci_status, linked_issue, description_present, lockfile_or_generated_only and truncated_input.
 - Each gives a value, a direction, a severity and one plain sentence. All thresholds live in one module.
+- `typo_scale` is neutral (changed in P05): small documentation fixes are legitimate work, so the signal only describes the size.
 - Signals feed the prompt (as untrusted text), the confidence and the reply suggestions.
 
 ### 3. Citations are verifiable, and nothing is ever claimed without proof
@@ -57,7 +58,8 @@ P04 replaces the stub steps with a real PR review. Local inference runs on a CPU
 
 - Prompt `review.pr` v1 puts the title, body, signal summary and diff in untrusted blocks. The system text forbids guessing who wrote the change, or whether a person or an AI wrote it.
 - The reply draft is deterministic. It uses fixed summary wording ("Looks valuable", "Needs a human look", "Likely low value"), up to three verified evidence bullets and signal-derived suggestions.
-- The model's contributor note is included only if it passes the banned-word filter (`BANNED_WORDS` in `review_core/reply.py`); otherwise a neutral line replaces it. `@mentions` are defused.
+- The model's contributor note is included only if it passes the banned-word filter (`BANNED_WORDS` in `review_core/reply.py`); otherwise a neutral line replaces it. Since P05 the filter scans only that model-authored note, not fixed wording, paths or diff quotes. `@mentions` are defused everywhere.
+- A leak-guard trip fails the analysis with code `identity_leak_blocked` (non-retryable).
 - The draft is stored, never posted.
 
 ## Consequences

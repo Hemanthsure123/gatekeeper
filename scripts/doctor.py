@@ -1,8 +1,10 @@
 """Report local tool versions and whether Ollama responds.
 
-Never reads .env: OLLAMA_BASE_URL comes from the process environment only and
-falls back to the local default. Problems are reported as warnings; the exit
-code is always 0 so a missing tool never looks like a crash.
+OLLAMA_BASE_URL comes from the process environment only (default local URL). The one
+value read from ``.env`` is the non-secret MODEL_BACKEND (when not in the environment),
+so Ollama problems are only *info* when another backend is active. No other ``.env``
+value is read, and none is ever printed. Problems are warnings; the exit code is always
+0 so a missing tool never looks like a crash.
 """
 
 from __future__ import annotations
@@ -10,16 +12,19 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 MIN_PYTHON = (3, 13)
 TIMEOUT_SECONDS = 5.0
 
@@ -38,6 +43,8 @@ class Check:
     ok: bool
     detail: str
     hints: tuple[str, ...] = field(default=())
+    #: Informational only: shown, but not counted as a warning.
+    info: bool = False
 
 
 def _run(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -135,29 +142,54 @@ def ollama_check(base_url: str) -> Check:
     return Check(name, ok=True, detail=f"reachable at {shown}", hints=tuple(models))
 
 
-def run_checks(base_url: str) -> list[Check]:
+_BACKEND_LINE = re.compile(r"^\s*MODEL_BACKEND\s*=\s*(\S*)\s*$")
+
+
+def model_backend(env_file: Path = ENV_FILE) -> str:
+    """MODEL_BACKEND from the environment, else from ``.env`` (only this key), else ollama."""
+    value = os.environ.get("MODEL_BACKEND", "").strip()
+    if not value and env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            match = _BACKEND_LINE.match(line)
+            if match:
+                value = match[1].strip("\"'")
+    return value.lower() or "ollama"
+
+
+def run_checks(base_url: str, backend: str = "ollama") -> list[Check]:
     checks = [tool_version(name, command) for name, command in TOOLS]
     checks.insert(1, python_check())
     checks.append(docker_daemon_check())
     checks.append(ollama_check(base_url))
+    if backend != "ollama":
+        checks = [
+            replace(
+                c, info=True, hints=(*c.hints, f"MODEL_BACKEND is {backend}; Ollama is optional")
+            )
+            if c.name.startswith("ollama") and not c.ok
+            else c
+            for c in checks
+        ]
     return checks
 
 
 def report(checks: Sequence[Check]) -> str:
     lines = ["Gatekeeper doctor"]
     for check in checks:
-        status = "ok  " if check.ok else "WARN"
+        status = "ok  " if check.ok else ("info" if check.info else "WARN")
         lines.append(f"  [{status}] {check.name:<15} {check.detail}")
         prefix = "model:" if check.name == "ollama api" and check.ok else "hint:"
         lines.extend(f"         {'':<15} {prefix} {hint}" for hint in check.hints)
-    warnings = sum(not check.ok for check in checks)
+    warnings = sum(not check.ok and not check.info for check in checks)
     lines.append(f"{warnings} warning(s)." if warnings else "All checks passed.")
     return "\n".join(lines)
 
 
 def main() -> int:
     base_url = os.environ.get("OLLAMA_BASE_URL", "").strip() or DEFAULT_OLLAMA_BASE_URL
-    print(report(run_checks(base_url)))
+    backend = model_backend()
+    print(f"Model backend: {backend}")
+    print(report(run_checks(base_url, backend)))
     return 0
 
 
