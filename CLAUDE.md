@@ -72,7 +72,7 @@ g. **No secrets in code, logs, tests or fixtures.** You may change non-secret se
 - Package code lives in `backend/src/gatekeeper/` and tests in `backend/tests/`. Tooling scripts live in `scripts/`, with tests in `scripts/tests/`.
 - Backend building blocks (P01): `gatekeeper.config.get_settings()` + `settings.require(...)`, `gatekeeper.logging`, `gatekeeper.errors`, `gatekeeper.db` (sync SQLAlchemy 2.1 + psycopg 3, Alembic in `backend/alembic`), `gatekeeper.audit` (`AuditRecorder`, `AuditReader`). See ADR 0002.
 - Schema changes only via new Alembic revisions; never edit an applied revision.
-- GitHub: read-only `gatekeeper.github.client.GitHubClient` only; no write calls without a policy-gated executor ADR. Respect `GATEKEEPER_ALLOWED_REPOS` everywhere.
+- GitHub: `gatekeeper.github.client.GitHubClient` is read-only with exactly one permitted write: `create_issue_comment(..., allow_write=True)`. It is called only by `POST /api/analyses/{id}/comment`, after a maintainer approved the exact text. That write is idempotent, audited first and fails closed (ADR 0007). No other GitHub writes: no labels, closing, approvals or auto-actions. Respect `GATEKEEPER_ALLOWED_REPOS` everywhere.
 - Identity: only `gatekeeper.identity` touches `item_authors`; review code gets `ItemView`. The AST test in `tests/test_contributor_blind_imports.py` must keep passing.
 - Background work: `gatekeeper.queue` (Postgres). Do not add RQ, Celery or other queue libraries (ADR 0004).
 - Model calls: always `gatekeeper.models.get_backend().generate(request, run)` with a Pydantic `response_model` and a `PromptTemplate` from `gatekeeper.prompts`. Put all GitHub-sourced text in untrusted slots. Tests use `gatekeeper.models.testing.fake_adapter`, never a live model. See ADR 0003.
@@ -107,7 +107,7 @@ g. **No secrets in code, logs, tests or fixtures.** You may change non-secret se
   - Scrubbing happens only in `gatekeeper.identity.scrub`, before storage.
   - Review code gets an opaque `forbidden_terms` set, enforced by the adapter's leak guard.
   - Never add identity-based signals.
-- Exactly one model call per review. The reply draft is composed by code and stored, never posted.
+- Exactly one model call per review. The reply draft is composed by code and stored. It is never posted automatically: only a maintainer can post it, once, from the extension, after reviewing (and optionally editing) the exact text. Edited text passes the banned-word filter.
 
 ## Extension design principles (P06)
 

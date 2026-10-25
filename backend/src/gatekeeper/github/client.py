@@ -7,7 +7,9 @@ message (secondary; otherwise wait at least one minute). Short waits are slept
 inline; longer ones surface as a retryable ``ExternalServiceError`` carrying
 ``retry_after`` so the job queue backs off instead of blocking a worker.
 
-Only GET requests exist here. Authorization values are never logged.
+Read-only, with exactly one write: ``create_issue_comment``, which refuses to run
+unless the caller passes ``allow_write=True`` (only the approved-comment endpoint does).
+Writes are never retried. Authorization values are never logged.
 """
 
 from __future__ import annotations
@@ -23,12 +25,18 @@ from urllib.parse import urlsplit
 import httpx
 
 from gatekeeper.config import Settings
-from gatekeeper.errors import ExternalServiceError, NotFoundError
+from gatekeeper.errors import (
+    ExternalServiceError,
+    GitHubWriteForbidden,
+    NotFoundError,
+    PolicyViolation,
+)
 from gatekeeper.github.auth import API_VERSION, GitHubAuth, LazyAuth
 from gatekeeper.github.models import (
     CheckRun,
     GitHubUser,
     GitTree,
+    IssueComment,
     PullFile,
     PullFiles,
     PullRequest,
@@ -175,6 +183,44 @@ class GitHubClient:
         except ExternalServiceError as exc:
             return False if exc.details.get("status") in (401, 403) else None
         return True
+
+    # -- the only write ----------------------------------------------------------------
+
+    def create_issue_comment(
+        self, owner: str, name: str, number: int, body: str, *, allow_write: bool = False
+    ) -> IssueComment:
+        """``POST /repos/{owner}/{repo}/issues/{number}/comments`` (pull requests are
+        issues). A fine-grained token needs Issues (write) or Pull requests (write).
+        Single attempt: a comment must never be posted twice."""
+        if not allow_write:
+            raise PolicyViolation("GitHub writes need allow_write=True (approved comment only)")
+        url = f"{self._base}/repos/{owner}/{name}/issues/{number}/comments"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": self._auth.authorization(owner, name),
+            "X-GitHub-Api-Version": API_VERSION,
+            "User-Agent": "gatekeeper",
+        }
+        try:
+            response = self._http.post(url, headers=headers, json={"body": body})
+        except httpx.TransportError as exc:
+            raise ExternalServiceError(
+                "could not reach GitHub to post the comment", retryable=False
+            ) from exc
+        if response.status_code in (401, 403, 404):
+            raise GitHubWriteForbidden(
+                f"GitHub refused the comment (HTTP {response.status_code}). The token needs "
+                "write access to this repository: Issues (write) or Pull requests (write) for "
+                "a fine-grained token.",
+                details={"status": response.status_code},
+            )
+        if response.status_code != 201:
+            raise ExternalServiceError(
+                f"GitHub did not create the comment (HTTP {response.status_code})",
+                retryable=False,
+                details={"status": response.status_code},
+            )
+        return IssueComment.model_validate(response.json())
 
     # -- plumbing -----------------------------------------------------------------------
 

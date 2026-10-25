@@ -35,9 +35,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
-from gatekeeper.activity import TERMINAL_KINDS, ActivitySink, ActivityView, file_states, list_events
+from gatekeeper.activity import (
+    TERMINAL_KINDS,
+    ActivitySink,
+    ActivityView,
+    Kind,
+    file_states,
+    list_events,
+)
 from gatekeeper.api.webhooks import PrJob
-from gatekeeper.audit import AuditRecorder, EventType
+from gatekeeper.audit import Actor, AuditRecorder, EventType, sha256_hex
 from gatekeeper.chat import ChatQuestion, answer_question, chat_history
 from gatekeeper.config import Settings
 from gatekeeper.db.base import utcnow
@@ -47,18 +54,27 @@ from gatekeeper.db.models import (
     CommentPost,
     Event,
     Item,
+    ItemKind,
     Job,
     Repo,
 )
 from gatekeeper.db.repos import find_pr_item, latest_analysis
 from gatekeeper.db.session import session_scope
-from gatekeeper.errors import AuthenticationFailed, ConfigError, NotFoundError, PolicyViolation
+from gatekeeper.errors import (
+    AuthenticationFailed,
+    ConfigError,
+    GatekeeperError,
+    NotFoundError,
+    PolicyViolation,
+    ValidationFailed,
+)
 from gatekeeper.github.client import GitHubClient
 from gatekeeper.github.normalize import ItemContent
 from gatekeeper.logging import get_logger
 from gatekeeper.models.adapter import ModelAdapter
 from gatekeeper.pipeline.version import PIPELINE_VERSION
 from gatekeeper.queue import PROCESS_PR, enqueue
+from gatekeeper.review_core.reply import contains_banned, defuse_mentions
 from gatekeeper.review_core.signals import SignalInput, SignalResult, file_signals
 
 log = get_logger("gatekeeper.api.extension")
@@ -74,6 +90,9 @@ FINAL_STATUSES: Final = frozenset(
     {AnalysisStatus.COMPLETED.value, AnalysisStatus.ABSTAINED.value, AnalysisStatus.FAILED.value}
 )
 REUSABLE: Final = frozenset({AnalysisStatus.COMPLETED.value, AnalysisStatus.ABSTAINED.value})
+COMMENT_FOOTER: Final = (
+    "_Reviewed by Gatekeeper using an open-weight model. A maintainer approved this comment._"
+)
 #: First path segments on github.com that are not repository owners.
 RESERVED_OWNERS: Final = frozenset(
     {
@@ -425,6 +444,32 @@ class ChatBody(BaseModel):
     focus_path: str | None = Field(default=None, max_length=500)
 
 
+class CommentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm: bool
+    text: str | None = Field(default=None, max_length=65_000)
+
+
+def comment_text(analysis: Analysis, text: str | None, max_chars: int) -> tuple[str, bool]:
+    """The approved text (the stored draft unless edited) and whether it was edited.
+    Edited text is length-limited and must pass the banned-word filter."""
+    draft = str((analysis.result or {}).get("reply_draft") or "")
+    edited = text is not None and text.strip() != draft.strip()
+    value = text.strip() if text is not None else draft.strip()
+    if not value:
+        raise ValidationFailed("the comment text is empty")
+    if edited:
+        if len(value) > max_chars:
+            raise ValidationFailed(f"the comment is longer than {max_chars} characters")
+        if contains_banned(value):
+            raise ValidationFailed(
+                "the text contains wording Gatekeeper never posts because it labels people; "
+                "describe the work instead"
+            )
+    return defuse_mentions(value), edited
+
+
 # -- router --------------------------------------------------------------------------------
 
 
@@ -663,6 +708,83 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
             "references": reply.references,
             "message_id": str(reply.message_id),
         }
+
+    @router.post("/analyses/{analysis_id}/comment")
+    def post_comment(analysis_id: UUID, body: CommentBody) -> dict[str, Any]:
+        """The only GitHub write: one comment per analysis, after a maintainer approved
+        the exact text. Idempotent via comment_posts; audited before and after posting."""
+        if body.confirm is not True:
+            raise ValidationFailed("posting needs confirm: true")
+        with session_scope(sessions) as session:
+            analysis = session.get(Analysis, analysis_id, with_for_update=True)
+            if analysis is None:
+                raise NotFoundError("no such analysis")
+            item = session.get(Item, analysis.item_id)
+            repo = session.get(Repo, item.repo_id) if item else None
+            if item is None or repo is None or item.kind != ItemKind.PR.value:
+                raise NotFoundError("no pull request for this analysis")
+            _check_allowed(settings, repo.owner, repo.name)
+            existing = session.get(CommentPost, analysis_id)
+            if existing is not None:
+                return {"html_url": existing.html_url, "already_posted": True}
+            if analysis.status not in REUSABLE:
+                raise PolicyViolation("only a completed or abstained review can be posted")
+            text, edited = comment_text(analysis, body.text, settings.comment_max_chars)
+            comment = f"{text}\n\n---\n{COMMENT_FOOTER}"
+            digest = sha256_hex(comment.encode("utf-8"))
+            owner, name, number = repo.owner, repo.name, int(item.external_id)
+            # Fail closed: the approval is recorded before anything is sent to GitHub.
+            run = deps.recorder.start_run(
+                item_id=item.id,
+                payload={"kind": "comment", "analysis_id": str(analysis_id)},
+            )
+            run.record(
+                EventType.ACTION,
+                Actor.MAINTAINER,
+                {
+                    "action": "post_comment",
+                    "state": "approved",
+                    "analysis_id": str(analysis_id),
+                    "body_sha256": digest,
+                    "chars": len(comment),
+                    "edited": edited,
+                },
+            )
+            try:
+                posted = deps.github.create_issue_comment(
+                    owner, name, number, comment, allow_write=True
+                )
+            except GatekeeperError as exc:
+                run.record(EventType.ERROR, Actor.GITHUB, {"code": exc.code})
+                run.end(status="failed")
+                raise
+            run.record(
+                EventType.ACTION,
+                Actor.GITHUB,
+                {
+                    "action": "post_comment",
+                    "state": "posted",
+                    "github_comment_id": posted.id,
+                    "html_url": posted.html_url,
+                },
+            )
+            run.end(status="completed")
+            session.add(
+                CommentPost(
+                    analysis_id=analysis_id,
+                    github_comment_id=posted.id,
+                    html_url=posted.html_url,
+                    body_hash=digest,
+                )
+            )
+        deps.activity.emit(
+            analysis_id,
+            Kind.COMMENT_POSTED.value,
+            message="A maintainer approved the reply; it was posted to GitHub",
+            data={"html_url": posted.html_url, "edited": edited},
+        )
+        log.info("approved comment posted", number=number, edited=edited)
+        return {"html_url": posted.html_url, "already_posted": False}
 
     return router
 

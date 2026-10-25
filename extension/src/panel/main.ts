@@ -5,6 +5,7 @@ import { loadSettings } from "../shared/settings";
 import type { ActivityEvent, PrView } from "../shared/types";
 import { renderDrawer, renderNow, renderTimeline, renderVerdict } from "./activity";
 import { Api, ApiError } from "./api";
+import { approvalControl } from "./approve";
 import { renderChat } from "./chat";
 import { renderInsights } from "./insights";
 import { openBlob, openFolder, openPr, revealFile } from "./reveal";
@@ -395,6 +396,27 @@ function openInGitHub(path: string): void {
 // -- rendering -----------------------------------------------------------------------------
 
 let lastTreeKey: unknown[] = [];
+let lastVerdictKey: unknown[] = [];
+
+function changedVerdict(next: unknown[]): boolean {
+  const changed = next.some((v, i) => v !== lastVerdictKey[i]);
+  lastVerdictKey = next;
+  return changed;
+}
+
+function reloadAfterPost(): void {
+  const { ref, analysisId } = store.get();
+  if (!ref || !api) return;
+  window.setTimeout(async () => {
+    try {
+      const pr = await api!.pr(ref.owner, ref.name, ref.number);
+      showPr(pr, { keepEvents: true });
+      if (analysisId) void loadHistory(analysisId);
+    } catch {
+      // the posted state is already shown in the card
+    }
+  }, 600);
+}
 let lastEvents: ActivityEvent[] | null = null;
 
 function changedInputs(next: unknown[]): boolean {
@@ -440,7 +462,11 @@ function render(s: State): void {
   $("state-line").textContent = prShown ? (s.view === "analysing" ? "" : s.line) : s.line;
   $("pr-sections").hidden = !prShown;
   if (s.tab === "activity" && prShown) {
-    renderVerdict($("verdict"), s, {});
+    if (changedVerdict([s.view, s.pr, s.line])) {
+      renderVerdict($("verdict"), s, {
+        approval: (state) => approvalControl(state, { api: () => api, onPosted: reloadAfterPost }),
+      });
+    }
     renderNow($("now"), s);
     $("show-changed").setAttribute("aria-pressed", String(!s.showAll));
     $("show-all").setAttribute("aria-pressed", String(s.showAll));

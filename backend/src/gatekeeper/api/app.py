@@ -52,6 +52,7 @@ STATUS_BY_CODE: Final = {
     ErrorCode.MODEL_UNAVAILABLE: 503,
     ErrorCode.GEMINI_KEYS_INVALID: 503,
     ErrorCode.MODEL_TIMEOUT: 504,
+    ErrorCode.GITHUB_WRITE_FORBIDDEN: 403,
 }
 
 

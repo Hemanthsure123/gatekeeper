@@ -34,6 +34,7 @@ class ErrorCode(StrEnum):
     IDENTITY_LEAK_BLOCKED = "identity_leak_blocked"
     GEMINI_KEYS_INVALID = "gemini_keys_invalid"
     PRIVATE_REPO_HOSTED_MODEL_BLOCKED = "private_repo_hosted_model_blocked"
+    GITHUB_WRITE_FORBIDDEN = "github_write_forbidden"
 
 
 class GatekeeperError(Exception):
@@ -199,3 +200,9 @@ class PrivateRepoHostedModelBlocked(PolicyViolation):
     """A private repository would be sent to a hosted model without explicit permission."""
 
     error_code = ErrorCode.PRIVATE_REPO_HOSTED_MODEL_BLOCKED
+
+
+class GitHubWriteForbidden(_CodedError):  # noqa: N818 - matches the other error names
+    """GitHub refused the approved comment: the token lacks write permission."""
+
+    error_code = ErrorCode.GITHUB_WRITE_FORBIDDEN
