@@ -392,9 +392,11 @@ def private_pull(private: bool | None) -> PullRequest:
 def test_private_repo_guard(
     backend: str, private: bool | None, allowed: bool, blocked: bool
 ) -> None:
-    settings = Settings(  # type: ignore[call-arg]
-        _env_file=None, model_backend=backend, allow_private_repos_on_hosted_model=allowed
-    )
+    values: dict[str, Any] = {
+        "model_backend": backend,
+        "allow_private_repos_on_hosted_model": allowed,
+    }
+    settings = Settings(_env_file=None, **values)  # type: ignore[call-arg]
     if blocked:
         with pytest.raises(PrivateRepoHostedModelBlocked) as caught:
             guard_private_repo(settings, private_pull(private))

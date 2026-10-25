@@ -25,7 +25,16 @@ import httpx
 from gatekeeper.config import Settings
 from gatekeeper.errors import ExternalServiceError, NotFoundError
 from gatekeeper.github.auth import API_VERSION, GitHubAuth, LazyAuth
-from gatekeeper.github.models import CheckRun, GitHubUser, PullFile, PullFiles, PullRequest
+from gatekeeper.github.models import (
+    CheckRun,
+    GitHubUser,
+    PullFile,
+    PullFiles,
+    PullRequest,
+    PullSummary,
+    RateLimit,
+    Repository,
+)
 from gatekeeper.logging import get_logger
 
 PER_PAGE: Final = 100
@@ -120,10 +129,50 @@ class GitHubClient:
         data = self._get_json(owner, name, f"/user/{user_id}")
         return GitHubUser.model_validate(data).created_at
 
+    # -- account checks (token mode; read-only) -------------------------------------------
+
+    def authenticated_login(self) -> str:
+        """``GET /user`` (token mode). App installation tokens have no user."""
+        return str(GitHubUser.model_validate(self._get_json("", "", "/user")).login)
+
+    def rate_limit(self) -> RateLimit:
+        """``GET /rate_limit`` ``resources.core`` (does not count against the limit)."""
+        data = self._get_json("", "", "/rate_limit")
+        return RateLimit.model_validate(data["resources"]["core"])
+
+    def accessible_repos(self, limit: int = 100) -> list[Repository]:
+        """``GET /user/repos``: repositories these credentials can read (for a fine-grained
+        token, the repositories it was granted)."""
+        repos: list[Repository] = []
+        for page in self._pages("", "", "/user/repos"):
+            repos.extend(Repository.model_validate(entry) for entry in page)
+            if len(repos) >= limit:
+                return repos[:limit]
+        return repos
+
+    def open_pulls(self, owner: str, name: str, limit: int = 200) -> list[PullSummary]:
+        """``GET /repos/{owner}/{repo}/pulls?state=open``, paginated."""
+        pulls: list[PullSummary] = []
+        for page in self._pages(owner, name, f"/repos/{owner}/{name}/pulls", "&state=open"):
+            pulls.extend(PullSummary.model_validate(entry) for entry in page)
+            if len(pulls) >= limit:
+                return pulls[:limit]
+        return pulls
+
+    def can_read(self, owner: str, name: str, resource: str) -> bool | None:
+        """True/False if ``/repos/{o}/{r}/{resource}`` is readable; None if unknown."""
+        try:
+            self._get_json(owner, name, f"/repos/{owner}/{name}/{resource}?per_page=1")
+        except NotFoundError:
+            return False
+        except ExternalServiceError as exc:
+            return False if exc.details.get("status") in (401, 403) else None
+        return True
+
     # -- plumbing -----------------------------------------------------------------------
 
-    def _pages(self, owner: str, name: str, path: str) -> Iterator[Any]:
-        url: str | None = f"{self._base}{path}?per_page={PER_PAGE}"
+    def _pages(self, owner: str, name: str, path: str, query: str = "") -> Iterator[Any]:
+        url: str | None = f"{self._base}{path}?per_page={PER_PAGE}{query}"
         while url is not None:
             response = self._request(owner, name, url)
             yield response.json()

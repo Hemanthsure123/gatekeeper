@@ -4,7 +4,8 @@
     gatekeeper show <analysis_id> [--json]                print a stored analysis
     gatekeeper enqueue-pr <https-url | owner/name#number> put a process_pr job on the queue
     gatekeeper audit <run_id>                             print events and verify the chain
-    gatekeeper jobs [--limit N]                           list recent jobs
+    gatekeeper jobs [--limit N]                           list recent jobs (with error codes)
+    gatekeeper whoami | discover-repo | list-prs <owner/name>   GitHub account checks
 
 Every command respects GATEKEEPER_ALLOWED_REPOS and never prints secrets.
 """
@@ -18,6 +19,7 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from gatekeeper import cli_github
 from gatekeeper.api.webhooks import PrJob
 from gatekeeper.audit import AuditReader
 from gatekeeper.config import Settings, get_settings
@@ -46,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("run_id", type=UUID, help="the run id (UUID)")
     jobs = commands.add_parser("jobs", help="list recent jobs")
     jobs.add_argument("--limit", type=int, default=20, help="how many jobs (default 20)")
+    commands.add_parser("whoami", help="check the GitHub credentials (never prints the token)")
+    commands.add_parser("discover-repo", help="set GATEKEEPER_ALLOWED_REPOS from the token's repos")
+    list_prs = commands.add_parser("list-prs", help="list open pull requests of a repository")
+    list_prs.add_argument("repo", help="owner/name")
     return parser
 
 
@@ -200,6 +206,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_enqueue_pr(settings, args.pr)
         if args.command == "audit":
             return cmd_audit(settings, args.run_id)
+        if args.command == "whoami":
+            return cli_github.cmd_whoami(settings)
+        if args.command == "discover-repo":
+            return cli_github.cmd_discover_repo(settings)
+        if args.command == "list-prs":
+            return cli_github.cmd_list_prs(settings, args.repo)
         return cmd_jobs(settings, args.limit)
     except GatekeeperError as exc:
         print(f"error ({exc.code}): {exc.message}", file=sys.stderr)

@@ -66,6 +66,23 @@ class CheckRun(_GitHubModel):
     conclusion: str | None = None
 
 
+class Repository(_GitHubModel):
+    full_name: str
+    private: bool = False
+
+
+class PullSummary(_GitHubModel):
+    number: int
+    title: str
+    draft: bool = False
+
+
+class RateLimit(_GitHubModel):
+    limit: int
+    remaining: int
+    reset: int
+
+
 class PullFiles(_GitHubModel):
     files: list[PullFile]
     #: True when we stopped paginating at PR_MAX_FILES (GitHub itself caps at 3000).

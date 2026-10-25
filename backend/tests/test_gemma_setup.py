@@ -54,7 +54,7 @@ def respond(responses: dict[str, httpx.Response]) -> Any:
 
 
 def settings(keys: str) -> Settings:
-    return Settings(_env_file=None, gemini_api_keys=keys)  # type: ignore[call-arg]
+    return Settings(_env_file=None, gemini_api_keys=keys)  # type: ignore[call-arg, arg-type]
 
 
 @pytest.fixture
