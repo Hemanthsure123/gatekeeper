@@ -110,16 +110,23 @@ def tiny_change(inp: SignalInput) -> SignalResult:
     )
 
 
+def _whitespace_counts(removed: list[str], added: list[str]) -> tuple[int, int]:
+    """(changed lines, lines that differ only in whitespace) for one file."""
+    old = Counter(_WHITESPACE.sub("", line) for line in removed)
+    new = Counter(_WHITESPACE.sub("", line) for line in added)
+    whitespace = old.get("", 0) + new.get("", 0)
+    old.pop("", None)
+    new.pop("", None)
+    whitespace += 2 * sum((old & new).values())
+    return len(removed) + len(added), whitespace
+
+
 def whitespace_only(inp: SignalInput) -> SignalResult:
     total = whitespace = 0
     for _path, removed, added in _files_with_patches(inp.content):
-        total += len(removed) + len(added)
-        old = Counter(_WHITESPACE.sub("", line) for line in removed)
-        new = Counter(_WHITESPACE.sub("", line) for line in added)
-        whitespace += old.get("", 0) + new.get("", 0)
-        old.pop("", None)
-        new.pop("", None)
-        whitespace += 2 * sum((old & new).values())
+        lines, blank = _whitespace_counts(removed, added)
+        total += lines
+        whitespace += blank
     share = round(whitespace / total, 2) if total else 0.0
     if total and share >= 1.0:
         return _result(
@@ -279,6 +286,107 @@ REGISTRY: Final[tuple[Rule, ...]] = (
 
 def compute_signals(inp: SignalInput) -> list[SignalResult]:
     return [rule(inp) for rule in REGISTRY]
+
+
+def file_signals(
+    inp: SignalInput, signals: Sequence[SignalResult]
+) -> dict[str, list[SignalResult]]:
+    """Per-file observations for display only (the review uses the PR-level signals).
+
+    Deterministic, path- and patch-based, identity-free. Every changed file is a key;
+    the list holds only the rules that fired for that file.
+    """
+    pr_level = {s.id: s for s in signals}
+    tests = pr_level.get("tests_touched")
+    omitted = set(inp.omitted_paths)
+    out: dict[str, list[SignalResult]] = {}
+    for file in inp.content.files:
+        ref = (EvidenceRef(path=file.path),)
+        fired: list[SignalResult] = []
+        if file.patch is None:
+            why = (
+                "it was over the diff size limit"
+                if file.patch_omitted
+                else "it is binary or too large for GitHub"
+            )
+            fired.append(
+                _result("no_diff", True, "neutral", "low", f"No diff is shown because {why}.", ref)
+            )
+        else:
+            lines, blank = _whitespace_counts(*changed_lines(file.patch))
+            share = round(blank / lines, 2) if lines else 0.0
+            if lines and share >= 1.0:
+                fired.append(
+                    _result(
+                        "whitespace_only",
+                        share,
+                        "negative",
+                        "high",
+                        "Every changed line in this file differs only in whitespace.",
+                        ref,
+                    )
+                )
+            elif lines and share >= t.WHITESPACE_WARN_SHARE:
+                fired.append(
+                    _result(
+                        "whitespace_only",
+                        share,
+                        "negative",
+                        "medium",
+                        f"About {round(share * 100)}% of this file's changed lines differ only "
+                        "in whitespace.",
+                        ref,
+                    )
+                )
+        if file.path in omitted:
+            fired.append(
+                _result(
+                    "truncated_input",
+                    True,
+                    "neutral",
+                    "high",
+                    "This file was left out of the review prompt (budget).",
+                    ref,
+                )
+            )
+        kind = classify(file.path)
+        if kind is FileKind.GENERATED:
+            fired.append(
+                _result(
+                    "lockfile_or_generated_only",
+                    True,
+                    "neutral",
+                    "low",
+                    "Lockfile, generated or vendored file.",
+                    ref,
+                )
+            )
+        elif kind is FileKind.DOCS:
+            fired.append(_result("docs_only", True, "neutral", "low", "Documentation file.", ref))
+        elif kind is FileKind.TEST and tests is not None and tests.direction == "positive":
+            fired.append(
+                _result(
+                    "tests_touched",
+                    True,
+                    "positive",
+                    "medium",
+                    "Test changes that accompany the source changes.",
+                    ref,
+                )
+            )
+        elif kind is FileKind.SOURCE and tests is not None and tests.direction == "negative":
+            fired.append(
+                _result(
+                    "tests_touched",
+                    False,
+                    "negative",
+                    "low",
+                    "Source file changed without test changes in this PR.",
+                    ref,
+                )
+            )
+        out[file.path] = fired
+    return out
 
 
 def signal_summary(signals: Sequence[SignalResult]) -> str:

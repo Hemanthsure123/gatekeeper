@@ -3,20 +3,26 @@ audit run -> review steps -> stored result.
 
 Each run creates a new ``analyses`` row; earlier analyses are never changed. If the
 scrubbed content hash and pipeline version match the item's latest completed or
-abstained analysis, nothing new is created (skip-unchanged).
+abstained analysis, nothing new is created (skip-unchanged), unless ``force`` is set.
+
+A caller (the extension API) may create a *pending* analysis first and pass its id, so
+the extension can follow the run's activity feed from the start. The run then fills
+that row instead of creating a new one; if the job fails before the run starts, the
+pending row is marked failed.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from gatekeeper.activity import ActivityFeed, ActivitySink, Kind, NullActivity
 from gatekeeper.audit import Actor, AuditRecorder, EventType, Redactor
 from gatekeeper.config import Settings
 from gatekeeper.db.base import utcnow
@@ -111,6 +117,8 @@ class Services:
     github: GitHubReader
     #: Built lazily on first use (a diff that is too large never needs a model).
     model: ModelAdapter | None = None
+    #: Display-only live feed for the extension (best effort).
+    activity: ActivitySink = field(default_factory=NullActivity)
 
     def get_model(self) -> ModelAdapter:
         if self.model is None:
@@ -120,11 +128,13 @@ class Services:
     @classmethod
     def from_settings(cls, settings: Settings) -> Services:
         factory = create_session_factory(create_db_engine(settings))
+        redactor = Redactor.from_settings(settings)
         return cls(
             settings=settings,
             session_factory=factory,
-            recorder=AuditRecorder(factory, Redactor.from_settings(settings)),
+            recorder=AuditRecorder(factory, redactor),
             github=GitHubClient(settings),
+            activity=ActivityFeed(factory, redactor),
         )
 
 
@@ -157,6 +167,42 @@ def _finish_analysis(
         )
 
 
+def _fail_pending(services: Services, analysis_id: UUID, code: str) -> None:
+    """A pending analysis whose job failed before its run started (no-op once it ran)."""
+    try:
+        with session_scope(services.session_factory) as session:
+            changed = session.execute(
+                update(Analysis)
+                .where(Analysis.id == analysis_id, Analysis.status == AnalysisStatus.QUEUED.value)
+                .values(status=AnalysisStatus.FAILED.value, error_code=code)
+            ).rowcount  # type: ignore[attr-defined]
+    except Exception as exc:  # never mask the original failure
+        log.warning("could not mark the pending analysis failed", error=type(exc).__name__)
+        return
+    if changed:
+        services.activity.emit(
+            analysis_id,
+            Kind.RUN_FAILED.value,
+            level="error",
+            message=f"The run could not start ({code})",
+            data={"error_code": code, "step": "fetch"},
+        )
+
+
+def _claim_pending(session: Session, analysis_id: UUID | None, item_id: UUID) -> Analysis | None:
+    """The caller-created pending analysis for this item, if it is still queued."""
+    if analysis_id is None:
+        return None
+    pending = session.get(Analysis, analysis_id, with_for_update=True)
+    if (
+        pending is None
+        or pending.item_id != item_id
+        or pending.status != AnalysisStatus.QUEUED.value
+    ):
+        return None
+    return pending
+
+
 #: Backends that send content to a third-party service.
 HOSTED_BACKENDS: Final = frozenset({"gemini_api"})
 
@@ -184,6 +230,34 @@ def process_pr(
     trigger: str,
     steps: Sequence[Step] = REVIEW_STEPS,
     check_deadline: Callable[[], None] = lambda: None,
+    force: bool = False,
+    analysis_id: UUID | None = None,
+) -> ProcessResult:
+    try:
+        return _process_pr(
+            services,
+            ref,
+            trigger=trigger,
+            steps=steps,
+            check_deadline=check_deadline,
+            force=force,
+            pending_id=analysis_id,
+        )
+    except GatekeeperError as exc:
+        if analysis_id is not None:
+            _fail_pending(services, analysis_id, exc.code)
+        raise
+
+
+def _process_pr(
+    services: Services,
+    ref: PrRef,
+    *,
+    trigger: str,
+    steps: Sequence[Step],
+    check_deadline: Callable[[], None],
+    force: bool,
+    pending_id: UUID | None,
 ) -> ProcessResult:
     settings = services.settings
     if not settings.repo_allowed(ref.owner, ref.name):
@@ -220,7 +294,10 @@ def process_pr(
             session, repo.id, ref.number, content.model_dump(mode="json"), digest, state
         )
         save_author(session, item.id, author)
-        previous = reusable_analysis(session, item.id, digest)
+        pending = _claim_pending(session, pending_id, item.id)
+        previous = (
+            None if force or pending is not None else reusable_analysis(session, item.id, digest)
+        )
         if previous is not None:
             log.info(
                 "content unchanged since the last analysis; skipping",
@@ -228,16 +305,21 @@ def process_pr(
                 pipeline_version=PIPELINE_VERSION,
             )
             return ProcessResult(previous.id, previous.run_id, previous.status, skipped=True)
-        analysis = Analysis(
-            item_id=item.id,
-            run_id=run_id,
-            pipeline_version=PIPELINE_VERSION,
-            status=AnalysisStatus.RUNNING.value,
-            started_at=utcnow(),
-            head_sha=content.head_sha,
-            content_hash=digest,
-        )
-        session.add(analysis)
+        values = {
+            "pipeline_version": PIPELINE_VERSION,
+            "status": AnalysisStatus.RUNNING.value,
+            "started_at": utcnow(),
+            "head_sha": content.head_sha,
+            "content_hash": digest,
+        }
+        if pending is not None:
+            for key, value in values.items():
+                setattr(pending, key, value)
+            analysis = pending
+            run_id = pending.run_id
+        else:
+            analysis = Analysis(item_id=item.id, run_id=run_id, **values)
+            session.add(analysis)
         session.flush()
         item_id, analysis_id = item.id, analysis.id
 
@@ -257,8 +339,27 @@ def process_pr(
             _finish_analysis(
                 services.session_factory, analysis_id, AnalysisStatus.FAILED, error_code=exc.code
             )
+            services.activity.emit(
+                analysis_id,
+                Kind.RUN_FAILED.value,
+                level="error",
+                message=f"The run could not start ({exc.code})",
+                data={"error_code": exc.code, "step": None},
+            )
             raise
 
+        activity = services.activity
+        activity.emit(
+            analysis_id,
+            Kind.RUN_STARTED.value,
+            message=f"Started reviewing {ref.owner}/{ref.name}#{ref.number}",
+            data={
+                "trigger": trigger.split(":", 1)[0],
+                "pipeline_version": PIPELINE_VERSION,
+                "files": len(content.files),
+                "force": force,
+            },
+        )
         ctx = PipelineContext(
             settings=settings,
             session_factory=services.session_factory,
@@ -268,6 +369,7 @@ def process_pr(
             check_deadline=check_deadline,
             forbidden_terms=terms,
             get_model=services.get_model,
+            activity=activity,
         )
         try:
             guard_private_repo(settings, pr)
@@ -292,6 +394,14 @@ def process_pr(
             _finish_analysis(
                 services.session_factory, analysis_id, AnalysisStatus.FAILED, error_code=code
             )
+            activity.emit(
+                analysis_id,
+                Kind.RUN_FAILED.value,
+                step=ctx.state.current_step,
+                level="error",
+                message=f"The run failed ({code})",
+                data={"error_code": code, "step": ctx.state.current_step},
+            )
             log.warning("pipeline failed", code=code)
             raise
 
@@ -306,6 +416,23 @@ def process_pr(
             model=result.get("model"),
             prompt_version=result.get("prompt_version"),
             error_code=None,
+        )
+        if result.get("reply_draft"):
+            activity.emit(
+                analysis_id,
+                Kind.AWAITING_APPROVAL.value,
+                message="A reply draft is ready; nothing is posted without a maintainer",
+                data={"chars": len(result["reply_draft"])},
+            )
+        activity.emit(
+            analysis_id,
+            Kind.RUN_FINISHED.value,
+            message="Review finished",
+            data={
+                "status": final_status.value,
+                "verdict": review_state.verdict,
+                "confidence": review_state.confidence,
+            },
         )
         log.info(
             "pipeline finished",
@@ -327,6 +454,20 @@ def process_pr_handler(services: Services) -> Handler:
         except (KeyError, TypeError, ValueError) as exc:
             raise ValidationFailed("process_pr job payload is malformed") from exc
         trigger = f"webhook:{payload['delivery_id']}" if payload.get("delivery_id") else "queue"
-        process_pr(services, ref, trigger=trigger, check_deadline=ctx.check_deadline)
+        if payload.get("source") == "extension":
+            trigger = "extension"
+        pending = payload.get("analysis_id")
+        try:
+            pending_id = UUID(str(pending)) if pending else None
+        except ValueError as exc:
+            raise ValidationFailed("process_pr job payload has a malformed analysis_id") from exc
+        process_pr(
+            services,
+            ref,
+            trigger=trigger,
+            check_deadline=ctx.check_deadline,
+            force=bool(payload.get("force")),
+            analysis_id=pending_id,
+        )
 
     return handle

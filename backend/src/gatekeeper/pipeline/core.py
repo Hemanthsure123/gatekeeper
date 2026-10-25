@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from gatekeeper.activity import ActivitySink, Kind, Level, NullActivity
 from gatekeeper.audit import Run
 from gatekeeper.config import Settings
 from gatekeeper.github.normalize import ItemContent
@@ -48,6 +50,10 @@ class ReviewState:
     verdict: VerdictLabel | None = None
     confidence: float | None = None
     result: dict[str, Any] | None = None
+    #: Per-file display signals (path -> rules that fired), stored in the result.
+    file_signals: dict[str, list[SignalResult]] = field(default_factory=dict)
+    #: The step currently running (for the run_failed activity event).
+    current_step: str | None = None
 
 
 def _no_model() -> ModelAdapter:
@@ -68,6 +74,37 @@ class PipelineContext:
     #: Returns the model adapter; only called when a model call is actually needed.
     get_model: Callable[[], ModelAdapter] = field(default=_no_model)
     state: ReviewState = field(default_factory=ReviewState)
+    #: Display-only live feed (best effort; the audit run stays the record).
+    activity: ActivitySink = field(default_factory=NullActivity)
+
+    def emit(
+        self,
+        kind: Kind,
+        message: str,
+        *,
+        path: str | None = None,
+        level: Level = "info",
+        data: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.activity.emit(
+            self.analysis_id,
+            kind.value,
+            step=self.state.current_step,
+            path=path,
+            level=level,
+            message=message,
+            data=data,
+        )
+
+
+#: Plain-language step names for the activity feed.
+STEP_LABELS = {
+    "intake": "Reading the change",
+    "signals": "Computing signals",
+    "review": "Asking the model",
+    "verify": "Checking every citation",
+    "decision": "Deciding",
+}
 
 
 class Step(Protocol):
@@ -84,4 +121,11 @@ class Pipeline:
         for step in self.steps:
             ctx.check_deadline()
             log.info("pipeline step", step=step.name)
+            ctx.state.current_step = step.name
+            label = STEP_LABELS.get(step.name, step.name)
+            ctx.emit(Kind.STEP_STARTED, label)
+            started = time.perf_counter()
             step.run(ctx)
+            duration_ms = round((time.perf_counter() - started) * 1000, 1)
+            ctx.emit(Kind.STEP_FINISHED, f"{label}: done", data={"duration_ms": duration_ms})
+        ctx.state.current_step = None

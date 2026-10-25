@@ -26,6 +26,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from gatekeeper.db.base import Base, CreatedAt, Timestamps, UuidPrimaryKey
@@ -292,3 +293,64 @@ class Job(UuidPrimaryKey, Timestamps, Base):
     dedupe_key: Mapped[str | None] = mapped_column(Text)
     last_error_code: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[datetime | None]
+
+
+ACTIVITY_LEVELS: Final = ("info", "warn", "error")
+CHAT_ROLES: Final = ("user", "assistant")
+
+
+class ActivityEvent(Base):
+    """Display-only live feed for the extension (``gatekeeper.activity``). The audit
+    trail (``events``) stays the source of truth; this table is best effort."""
+
+    __tablename__ = "activity_events"
+    __table_args__ = (
+        CheckConstraint(_in("level", ACTIVITY_LEVELS), name="level"),
+        Index("ix_activity_events_analysis_id_id", "analysis_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("analyses.id", ondelete="CASCADE"))
+    ts: Mapped[datetime] = mapped_column(server_default=func.now())
+    kind: Mapped[str] = mapped_column(Text)
+    step: Mapped[str | None] = mapped_column(Text)
+    path: Mapped[str | None] = mapped_column(Text)
+    level: Mapped[str] = mapped_column(Text, default="info", server_default="info")
+    message: Mapped[str] = mapped_column(Text)
+    data: Mapped[dict[str, Any]] = mapped_column(
+        default=lambda: {}, server_default=text("'{}'::jsonb")
+    )
+
+
+class ChatMessage(UuidPrimaryKey, CreatedAt, Base):
+    """One chat turn about a PR's review. Identity-free: user text is scrubbed first."""
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        CheckConstraint(_in("role", CHAT_ROLES), name="role"),
+        Index("ix_chat_messages_item_id_created_at", "item_id", "created_at"),
+    )
+
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"))
+    analysis_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("analyses.id", ondelete="SET NULL")
+    )
+    role: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    refs: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+
+
+class CommentPost(Base):
+    """The single GitHub write: one approved comment per analysis (idempotency key)."""
+
+    __tablename__ = "comment_posts"
+
+    analysis_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analyses.id", ondelete="RESTRICT"), primary_key=True
+    )
+    github_comment_id: Mapped[int] = mapped_column(BigInteger)
+    html_url: Mapped[str] = mapped_column(Text)
+    body_hash: Mapped[str] = mapped_column(Text)
+    posted_at: Mapped[datetime] = mapped_column(server_default=func.now())

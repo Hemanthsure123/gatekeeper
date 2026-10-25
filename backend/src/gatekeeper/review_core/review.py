@@ -8,10 +8,10 @@ that does not fit, ends the analysis as *abstained*, never as a guess.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -108,6 +108,8 @@ class ReviewOutcome:
     latency_ms: float | None = None
     usage: Usage | None = None
     cache_hit: bool = False
+    #: Backend facts safe to show (for example the Gemini key alias and failovers).
+    meta: Mapping[str, Any] = field(default_factory=dict)
 
 
 def run_review(
@@ -149,4 +151,5 @@ def run_review(
         latency_ms=response.latency_ms,
         usage=response.usage,
         cache_hit=response.cache_hit,
+        meta=dict(response.meta),
     )
