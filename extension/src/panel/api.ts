@@ -8,6 +8,7 @@ import type {
   ChatAnswer,
   ChatMessage,
   CommentResult,
+  JobStatus,
   Metrics,
   ModelInput,
   PageContext,
@@ -96,6 +97,10 @@ export class Api {
 
   activity(id: string, after = 0): Promise<{ events: ActivityEvent[]; status: string }> {
     return this.request(`/api/analyses/${enc(id)}/activity?after=${after}`);
+  }
+
+  job(id: string): Promise<JobStatus> {
+    return this.request(`/api/jobs/${enc(id)}`);
   }
 
   tree(owner: string, name: string, pr: number): Promise<TreeResponse> {

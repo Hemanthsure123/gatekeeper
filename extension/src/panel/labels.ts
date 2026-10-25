@@ -62,6 +62,27 @@ export function abstainText(reason: string | null): string {
   return reason ? (ABSTAIN[reason] ?? reason.replaceAll("_", " ")) : "";
 }
 
+/** One plain line for an error code from a failed job or analysis. */
+const ERRORS: Record<string, string> = {
+  private_repo_hosted_model_blocked:
+    "This repository is private, so it is not sent to the hosted model. Use Ollama, or set ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL=true if you accept that.",
+  policy_violation: "This repository is not in GATEKEEPER_ALLOWED_REPOS.",
+  not_found: "GitHub could not find this pull request with the configured token.",
+  external_service_error:
+    "GitHub or another service refused a request. See the [worker] lines in the make dev terminal.",
+  gemini_keys_invalid: "Every Gemini API key was rejected. Run make gemma-setup.",
+  model_unavailable: "The model is unavailable or rate-limited. Try again in a minute.",
+  model_timeout: "The model call timed out. Try again.",
+  identity_leak_blocked: "Blocked: the model input still contained the author's name.",
+  job_timeout: "The review took longer than JOB_TIMEOUT_S.",
+  lease_expired: "The worker stopped while running this review.",
+};
+
+export function errorText(code: string | null): string {
+  if (!code) return "The review could not run.";
+  return ERRORS[code] ?? `The review could not run (${code}).`;
+}
+
 export const DIRECTION_ICON: Record<string, string> = {
   positive: "+",
   negative: "−",

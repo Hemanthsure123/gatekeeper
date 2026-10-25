@@ -671,6 +671,23 @@ def build_router(deps: ExtensionDeps) -> APIRouter:
             "changed": len(changed),
         }
 
+    @router.get("/jobs/{job_id}")
+    def job_status(job_id: UUID) -> dict[str, Any]:
+        """Lets the panel notice a job that failed before any analysis existed."""
+        with session_scope(sessions) as session:
+            job = session.get(Job, job_id)
+            if job is None:
+                raise NotFoundError("no such job")
+            _check_allowed(settings, str(job.payload.get("owner")), str(job.payload.get("name")))
+            return {
+                "id": str(job.id),
+                "status": job.status,
+                "attempts": job.attempts,
+                "max_attempts": job.max_attempts,
+                "last_error_code": job.last_error_code,
+                "run_after": job.run_after.isoformat(),
+            }
+
     @router.get("/metrics")
     def get_metrics(days: int = Query(default=30, ge=1, le=365)) -> dict[str, Any]:
         with session_scope(sessions) as session:

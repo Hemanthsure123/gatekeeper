@@ -47,6 +47,11 @@
   box-sizing: border-box;
 }
 
+/* Author display rules (flex, grid) would otherwise override the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;

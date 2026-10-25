@@ -181,6 +181,15 @@ export interface ModelInput {
   identity_hidden: true;
 }
 
+export interface JobStatus {
+  id: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "dead";
+  attempts: number;
+  max_attempts: number;
+  last_error_code: string | null;
+  run_after: string;
+}
+
 export interface CommentResult {
   html_url: string;
   already_posted: boolean;

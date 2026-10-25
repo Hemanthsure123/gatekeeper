@@ -268,7 +268,19 @@ def _process_pr(
     github = services.github
     pr = github.get_pull(ref.owner, ref.name, ref.number)
     files = github.list_pull_files(ref.owner, ref.name, ref.number, max_files=settings.pr_max_files)
-    checks = github.list_check_runs(ref.owner, ref.name, pr.head.sha)
+    try:
+        checks = github.list_check_runs(ref.owner, ref.name, pr.head.sha)
+    except GatekeeperError as exc:
+        # CI status is one optional signal. A token without Checks: read gets 403 here;
+        # review without it rather than failing the whole run. Retryable errors still raise.
+        if exc.retryable:
+            raise
+        log.warning(
+            "check runs not readable; reviewing without CI status",
+            code=exc.code,
+            status=exc.details.get("status"),
+        )
+        checks = []
     try:
         created_at = github.get_user_created_at(ref.owner, ref.name, pr.user.id)
     except GatekeeperError as exc:  # advisory data only: never block the pipeline on it

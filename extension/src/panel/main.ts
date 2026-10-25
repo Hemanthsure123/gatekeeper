@@ -6,6 +6,7 @@ import type { ActivityEvent, PrView } from "../shared/types";
 import { renderDrawer, renderNow, renderTimeline, renderVerdict } from "./activity";
 import { Api, ApiError } from "./api";
 import { approvalControl } from "./approve";
+import { errorText } from "./labels";
 import { renderChat } from "./chat";
 import { renderInsights } from "./insights";
 import { openBlob, openFolder, openPr, revealFile } from "./reveal";
@@ -329,20 +330,36 @@ async function analyse(): Promise<void> {
   }
   const started = Date.now();
   store.set({ line: response.created ? "Queued; waiting for the worker." : "Already queued." });
+  const stopPolling = (): void => {
+    if (pollTimer !== null) clearInterval(pollTimer);
+    pollTimer = null;
+  };
   pollTimer = window.setInterval(async () => {
     if (mine !== generation || !api) return;
-    if (Date.now() - started > STILL_QUEUED_MS) {
-      store.set({ line: "Still queued. Is the worker running (make dev)?" });
-    }
     try {
       const latest = await api.pr(ref.owner, ref.name, ref.number);
       if (latest.analysis.id !== previous) {
-        if (pollTimer !== null) clearInterval(pollTimer);
-        pollTimer = null;
+        stopPolling();
         showPr(latest);
+        return;
       }
     } catch {
-      // not there yet
+      // no analysis yet
+    }
+    // A job can fail before any analysis exists (for example GitHub refused a read).
+    try {
+      const job = await api.job(response.job_id);
+      if (mine !== generation) return;
+      if (job.status === "failed" || job.status === "dead") {
+        stopPolling();
+        setView(previous ? "result" : "not_analysed", errorText(job.last_error_code));
+      } else if (job.status === "queued" && job.last_error_code) {
+        store.set({ line: `Retrying after an error: ${errorText(job.last_error_code)}` });
+      } else if (job.status === "queued" && Date.now() - started > STILL_QUEUED_MS) {
+        store.set({ line: "Still queued. Is the worker running (make dev)?" });
+      }
+    } catch {
+      // keep polling
     }
   }, POLL_MS);
 }

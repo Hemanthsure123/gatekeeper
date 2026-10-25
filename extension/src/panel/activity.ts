@@ -1,7 +1,15 @@
 // Activity tab views: the verdict card, the "Now" line and the timeline.
 import type { ActivityEvent, PrFile } from "../shared/types";
 import { formatTime, h, span } from "./dom";
-import { abstainText, DIRECTION_ICON, EVENT_ICON, FILE_STATUS, STAGE, VERDICT } from "./labels";
+import {
+  abstainText,
+  DIRECTION_ICON,
+  errorText,
+  EVENT_ICON,
+  FILE_STATUS,
+  STAGE,
+  VERDICT,
+} from "./labels";
 import type { State } from "./store";
 
 const TIMELINE_MAX = 300;
@@ -42,7 +50,8 @@ export function renderVerdict(root: HTMLElement, state: State, handlers: Verdict
         "div",
         { class: "card tone-bad" },
         h("p", { class: "card-title" }, h("span", { "aria-hidden": "true" }, "⚠ "), "The review could not finish"),
-        h("p", { class: "muted" }, `Error: ${analysis.error_code ?? "unknown"}. Try Re-analyse.`),
+        h("p", { class: "muted" }, errorText(analysis.error_code)),
+        h("p", { class: "muted small" }, `Code: ${analysis.error_code ?? "unknown"}. Fix the cause, then Re-analyse.`),
       ),
     );
     return;
