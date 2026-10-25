@@ -28,6 +28,7 @@ from gatekeeper.github.auth import API_VERSION, GitHubAuth, LazyAuth
 from gatekeeper.github.models import (
     CheckRun,
     GitHubUser,
+    GitTree,
     PullFile,
     PullFiles,
     PullRequest,
@@ -158,6 +159,12 @@ class GitHubClient:
             if len(pulls) >= limit:
                 return pulls[:limit]
         return pulls
+
+    def get_tree(self, owner: str, name: str, sha: str) -> GitTree:
+        """``GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1`` (Contents: read).
+        ``sha`` may be a commit SHA; GitHub resolves it to that commit's root tree."""
+        data = self._get_json(owner, name, f"/repos/{owner}/{name}/git/trees/{sha}?recursive=1")
+        return GitTree.model_validate(data)
 
     def can_read(self, owner: str, name: str, resource: str) -> bool | None:
         """True/False if ``/repos/{o}/{r}/{resource}`` is readable; None if unknown."""

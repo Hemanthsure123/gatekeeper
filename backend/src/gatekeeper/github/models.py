@@ -83,6 +83,25 @@ class RateLimit(_GitHubModel):
     reset: int
 
 
+class TreeEntry(_GitHubModel):
+    path: str
+    #: "blob" (file), "tree" (folder) or "commit" (submodule).
+    type: str
+    size: int | None = None
+
+
+class GitTree(_GitHubModel):
+    sha: str
+    tree: list[TreeEntry] = []
+    #: GitHub stopped at its limit (100,000 entries or 7 MB with recursive=1).
+    truncated: bool = False
+
+
+class IssueComment(_GitHubModel):
+    id: int
+    html_url: str
+
+
 class PullFiles(_GitHubModel):
     files: list[PullFile]
     #: True when we stopped paginating at PR_MAX_FILES (GitHub itself caps at 3000).

@@ -1,4 +1,4 @@
-"""Default production wiring for the gateway (database store and readiness checks)."""
+"""Default production wiring: database store, readiness checks, extension services."""
 
 from __future__ import annotations
 
@@ -9,14 +9,32 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from gatekeeper.activity import ActivityFeed
+from gatekeeper.api.extension import ExtensionDeps
 from gatekeeper.api.store import PostgresWebhookStore
+from gatekeeper.audit import AuditRecorder, Redactor
 from gatekeeper.config import Settings
 from gatekeeper.db.session import create_db_engine, create_session_factory
+from gatekeeper.github.client import GitHubClient
+from gatekeeper.models.factory import get_backend
 
 
 def default_store(settings: Settings) -> PostgresWebhookStore:
     factory = create_session_factory(create_db_engine(settings))
     return PostgresWebhookStore(factory, max_attempts=settings.job_max_attempts)
+
+
+def default_extension(settings: Settings) -> ExtensionDeps:
+    factory = create_session_factory(create_db_engine(settings))
+    redactor = Redactor.from_settings(settings)
+    return ExtensionDeps(
+        settings=settings,
+        session_factory=factory,
+        github=GitHubClient(settings),
+        recorder=AuditRecorder(factory, redactor),
+        activity=ActivityFeed(factory, redactor),
+        model_factory=lambda: get_backend(settings),
+    )
 
 
 def default_readiness(settings: Settings) -> Callable[[], dict[str, str]]:

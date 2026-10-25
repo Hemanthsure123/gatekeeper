@@ -1,6 +1,7 @@
-"""FastAPI app factory: the webhook gateway plus health endpoints.
+"""FastAPI app factory: the webhook gateway, the extension API (``/api``) and health
+endpoints.
 
-Local only: the server binds to 127.0.0.1 by default. Interactive API docs are off.
+Local only: the server binds to API_HOST (default 127.0.0.1). Interactive API docs are off.
 """
 
 from __future__ import annotations
@@ -11,9 +12,11 @@ from typing import Any, Final
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from gatekeeper.api.extension import ExtensionDeps, build_router
 from gatekeeper.api.webhooks import WebhookStore, process_delivery, signature_valid
 from gatekeeper.config import Settings, get_settings
 from gatekeeper.errors import (
@@ -35,6 +38,7 @@ ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 _REQUEST_ID: Final = re.compile(r"[A-Za-z0-9._-]{1,64}")
 STATUS_BY_CODE: Final = {
+    ErrorCode.CONFIG: 503,
     ErrorCode.VALIDATION_FAILED: 400,
     ErrorCode.AUTHENTICATION_FAILED: 401,
     ErrorCode.POLICY_VIOLATION: 403,
@@ -84,6 +88,15 @@ async def _gatekeeper_error(_request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse({"error": {"code": "internal_error"}}, status_code=500)
 
 
+async def _invalid_request(_request: Request, exc: Exception) -> JSONResponse:
+    """Request validation errors in the error model's shape (field names only)."""
+    fields = []
+    if isinstance(exc, RequestValidationError):
+        fields = sorted({".".join(str(p) for p in e.get("loc", ())) for e in exc.errors()})
+    error = ValidationFailed(f"invalid request: {', '.join(fields) or 'malformed input'}")
+    return JSONResponse({"error": error.to_public_dict()}, status_code=400)
+
+
 async def _read_limited(request: Request, limit: int) -> bytes:
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > limit:
@@ -101,6 +114,7 @@ def create_app(
     *,
     store: WebhookStore | None = None,
     readiness: Readiness | None = None,
+    extension: ExtensionDeps | None = None,
 ) -> FastAPI:
     """Build the gateway. Refuses to start without GITHUB_WEBHOOK_SECRET."""
     settings = settings or get_settings()
@@ -111,10 +125,11 @@ def create_app(
     if not secret:
         raise ConfigError("missing required setting(s): GITHUB_WEBHOOK_SECRET")
     if store is None or readiness is None:
-        from gatekeeper.api.deps import default_readiness, default_store
+        from gatekeeper.api.deps import default_extension, default_readiness, default_store
 
         store = store or default_store(settings)
         readiness = readiness or default_readiness(settings)
+        extension = extension or default_extension(settings)
     webhook_store, check_ready = store, readiness
 
     app = FastAPI(
@@ -122,9 +137,14 @@ def create_app(
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
-        exception_handlers={GatekeeperError: _gatekeeper_error},
+        exception_handlers={
+            GatekeeperError: _gatekeeper_error,
+            RequestValidationError: _invalid_request,
+        },
     )
     app.add_middleware(RequestIdMiddleware)
+    if extension is not None:
+        app.include_router(build_router(extension), prefix="/api")
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
