@@ -8,7 +8,7 @@ logging. Drivers only translate one call to their wire format and back.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
@@ -65,6 +65,8 @@ class Completion:
     input_tokens: int | None = None
     output_tokens: int | None = None
     finish_reason: str | None = None
+    #: Driver facts safe to audit and log (e.g. ``key_alias``, ``failovers``); no secrets.
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 class BackendDriver(Protocol):

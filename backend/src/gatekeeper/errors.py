@@ -32,6 +32,8 @@ class ErrorCode(StrEnum):
     PAYLOAD_TOO_LARGE = "payload_too_large"
     JOB_TIMEOUT = "job_timeout"
     IDENTITY_LEAK_BLOCKED = "identity_leak_blocked"
+    GEMINI_KEYS_INVALID = "gemini_keys_invalid"
+    PRIVATE_REPO_HOSTED_MODEL_BLOCKED = "private_repo_hosted_model_blocked"
 
 
 class GatekeeperError(Exception):
@@ -185,3 +187,15 @@ class IdentityLeakBlocked(PolicyViolation):
     """The leak guard found a forbidden identity term in model input. Never retried."""
 
     error_code = ErrorCode.IDENTITY_LEAK_BLOCKED
+
+
+class GeminiKeysInvalid(_CodedError):  # noqa: N818 - matches the other error names
+    """Every key in the Gemini key pool was rejected. Not retryable: a person must act."""
+
+    error_code = ErrorCode.GEMINI_KEYS_INVALID
+
+
+class PrivateRepoHostedModelBlocked(PolicyViolation):
+    """A private repository would be sent to a hosted model without explicit permission."""
+
+    error_code = ErrorCode.PRIVATE_REPO_HOSTED_MODEL_BLOCKED

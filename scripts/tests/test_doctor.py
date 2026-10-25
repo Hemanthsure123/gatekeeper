@@ -107,7 +107,7 @@ def refuse_connections(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise urllib.error.URLError(ConnectionRefusedError("refused"))
 
-    monkeypatch.setattr(doctor.urllib.request, "urlopen", refuse)
+    monkeypatch.setattr("urllib.request.urlopen", refuse)
 
 
 def test_unreachable_ollama_is_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:

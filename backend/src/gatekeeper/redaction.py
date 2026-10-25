@@ -3,7 +3,8 @@
 The :class:`Redactor` masks, in this order:
 1. any exact secret value known to Settings (longest first);
 2. PEM private key blocks;
-3. GitHub token formats (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_);
+3. GitHub token formats (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_) and Google API
+   keys (``AIza`` + 35 URL-safe characters);
 4. bearer tokens (the scheme word is kept, the credential is masked);
 5. email addresses.
 
@@ -33,6 +34,8 @@ _PRIVATE_KEY = re.compile(
 )
 _GITHUB_TOKEN = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255})\b")
 _BEARER = re.compile(r"\b([Bb]earer|BEARER)(\s+)[A-Za-z0-9\-._~+/]{16,}=*")
+#: Google API keys: "AIza" + 35 URL-safe characters (same shape as gitleaks' gcp-api-key).
+_GOOGLE_API_KEY = re.compile(r"(?<![A-Za-z0-9_-])AIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])")
 _EMAIL = re.compile(
     r"(?<![\w.+%-])(?!git@)[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"
 )
@@ -54,6 +57,7 @@ class Redactor:
             text = self._secrets.sub(mask("secret"), text)
         text = _PRIVATE_KEY.sub(mask("private_key"), text)
         text = _GITHUB_TOKEN.sub(mask("github_token"), text)
+        text = _GOOGLE_API_KEY.sub(mask("google_api_key"), text)
         text = _BEARER.sub(lambda m: f"{m[1]}{m[2]}{mask('bearer_token')}", text)
         return _EMAIL.sub(mask("email"), text)
 

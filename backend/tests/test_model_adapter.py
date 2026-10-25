@@ -440,3 +440,12 @@ def test_logs_estimate_next_to_reported_tokens(monkeypatch: pytest.MonkeyPatch) 
     (fields,) = seen
     assert fields["input_tokens"] == 120
     assert fields["estimated_input_tokens"] > 0
+
+
+def test_audit_records_backend_meta_without_secrets() -> None:
+    run = FakeRun()
+    meta = {"key_alias": "key-2", "failovers": 1}
+    adapter, _ = fake_adapter([Completion(text=GOOD.model_dump_json(), meta=meta)])
+    response = adapter.generate(make_request(), as_run(run))
+    assert response.meta == meta
+    assert run.events[1][2]["backend_meta"] == meta

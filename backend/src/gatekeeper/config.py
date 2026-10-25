@@ -14,11 +14,11 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Annotated, Any, Final, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from gatekeeper.errors import ConfigError
 
@@ -29,6 +29,7 @@ ModelBackend = Literal["ollama", "gemini_api", "vllm"]
 #: Upper bound (in the adapter's conservative token estimate) for everything in the
 #: review prompt except title, body and diff. A test keeps the real template under it.
 REVIEW_PROMPT_OVERHEAD_TOKENS: Final = 2_048
+MAX_GEMINI_KEYS: Final = 20
 
 _HTTP = frozenset({"http", "https"})
 _POSTGRES = frozenset({"postgresql", "postgresql+psycopg", "postgres"})
@@ -84,7 +85,16 @@ class Settings(BaseSettings):
     ollama_model: str | None = None
     ollama_model_secondary: str | None = None
     ollama_embed_model: str | None = None
+    #: Legacy single key; used only when GEMINI_API_KEYS is empty.
     gemini_api_key: SecretStr | None = None
+    #: Comma-separated pool of keys (see gatekeeper.models.key_pool). Never logged.
+    gemini_api_keys: Annotated[list[SecretStr], NoDecode] = Field(default_factory=list)
+    gemini_key_strategy: Literal["round_robin", "primary_first"] = "round_robin"
+    gemini_key_cooldown_base_s: float = Field(default=30.0, gt=0)
+    gemini_key_cooldown_max_s: float = Field(default=3600.0, gt=0)
+    gemini_max_wait_for_key_s: float = Field(default=60.0, ge=0)
+    #: Allow sending private repositories' (scrubbed) content to a hosted model.
+    allow_private_repos_on_hosted_model: bool = False
     gemma_model_primary: str | None = None
     gemma_model_secondary: str | None = None
 
@@ -172,6 +182,25 @@ class Settings(BaseSettings):
     def _api_url(cls, value: str) -> str:
         return validate_url(value, _HTTP).rstrip("/")
 
+    @field_validator("gemini_api_keys", mode="before")
+    @classmethod
+    def _key_list(cls, value: Any) -> Any:
+        """Split, strip, drop empties, de-duplicate; errors name positions, never values."""
+        if not isinstance(value, str):
+            return value
+        keys: list[str] = []
+        for position, raw in enumerate(value.split(","), start=1):
+            entry = raw.strip()
+            if not entry:
+                continue
+            if any(ch.isspace() or ch in "\"'" for ch in entry):
+                raise ValueError(f"entry {position} contains whitespace or quotes")
+            if entry not in keys:
+                keys.append(entry)
+        if len(keys) > MAX_GEMINI_KEYS:
+            raise ValueError(f"at most {MAX_GEMINI_KEYS} keys are supported")
+        return keys
+
     @field_validator("redis_url")
     @classmethod
     def _redis_url(cls, value: str | None) -> str | None:
@@ -225,13 +254,20 @@ class Settings(BaseSettings):
                 details={"missing": missing},
             )
 
+    def gemini_keys(self) -> list[SecretStr]:
+        """The key pool: GEMINI_API_KEYS if set, else the legacy GEMINI_API_KEY."""
+        if self.gemini_api_keys:
+            return list(self.gemini_api_keys)
+        return [self.gemini_api_key] if self.gemini_api_key else []
+
     def secret_values(self) -> list[str]:
-        """Every secret value that is set, for redaction. Never log the result."""
-        return [
-            value.get_secret_value()
-            for name in type(self).model_fields
-            if isinstance(value := getattr(self, name), SecretStr) and value.get_secret_value()
-        ]
+        """Every secret value that is set (including each pool key), for redaction."""
+        values: list[str] = []
+        for name in type(self).model_fields:
+            value = getattr(self, name)
+            items = value if isinstance(value, list) else [value]
+            values += [v.get_secret_value() for v in items if isinstance(v, SecretStr)]
+        return [v for v in values if v]
 
 
 @lru_cache(maxsize=1)

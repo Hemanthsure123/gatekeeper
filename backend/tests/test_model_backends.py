@@ -14,7 +14,13 @@ import respx
 from pydantic import BaseModel
 
 from gatekeeper.config import Settings
-from gatekeeper.errors import ConfigError, ExternalServiceError, ModelTimeout, ModelUnavailable
+from gatekeeper.errors import (
+    ConfigError,
+    ExternalServiceError,
+    GeminiKeysInvalid,
+    ModelTimeout,
+    ModelUnavailable,
+)
 from gatekeeper.models.adapter import ModelAdapter
 from gatekeeper.models.backend import BackendCall, Turn
 from gatekeeper.models.factory import get_backend, get_driver
@@ -325,7 +331,7 @@ def test_gemini_request_shape_and_parsing(mock: respx.MockRouter) -> None:
         (429, ModelUnavailable, True),
         (503, ModelUnavailable, True),
         (400, ExternalServiceError, False),
-        (403, ExternalServiceError, False),
+        (403, GeminiKeysInvalid, False),
     ],
 )
 def test_gemini_error_mapping(
@@ -361,13 +367,23 @@ def test_gemini_health(mock: respx.MockRouter) -> None:
     assert not GeminiBackend(gemini_settings()).health().ok
 
 
-def test_gemini_requires_its_own_keys_only() -> None:
+def test_gemini_requires_its_own_keys_only(mock: respx.MockRouter) -> None:
     with pytest.raises(ConfigError, match="GEMINI_API_KEY"):
         GeminiBackend(gemini_settings(gemini_api_key=None))
     backend = GeminiBackend(gemini_settings())
     with pytest.raises(ConfigError, match="GEMMA_MODEL_SECONDARY"):
         backend.model_for(ModelRole.SECONDARY)
-    assert backend.capabilities().max_context_tokens is None
+    mock.get(url__regex=r".*/models/gemma-4-26b-a4b-it$").respond(
+        json={"name": "models/gemma-4-26b-a4b-it", "inputTokenLimit": 262144}
+    )
+    assert backend.capabilities().max_context_tokens == 262144
+
+
+def test_gemini_context_falls_back_when_lookup_fails(mock: respx.MockRouter) -> None:
+    mock.get(url__regex=r".*/models/gemma-4-26b-a4b-it$").respond(
+        500, json={"error": {"code": 500, "status": "INTERNAL", "message": "x"}}
+    )
+    assert GeminiBackend(gemini_settings()).capabilities().max_context_tokens == 131072
 
 
 def test_gemini_extra_is_imported_lazily(monkeypatch: pytest.MonkeyPatch) -> None:

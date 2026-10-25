@@ -61,6 +61,8 @@ SCHEMA_INSTRUCTION: Final = (
 )
 
 log = get_logger("gatekeeper.models")
+#: Driver meta keys copied into the per-call log line.
+LOGGED_META: Final = frozenset({"key_alias", "failovers"})
 
 _semaphores: dict[int, threading.BoundedSemaphore] = {}
 _semaphores_lock = threading.Lock()
@@ -231,6 +233,7 @@ class ModelAdapter:
             output_tokens=response.usage.output_tokens,
             cache_hit=response.cache_hit,
             attempts=response.attempts,
+            **{k: v for k, v in response.meta.items() if k in LOGGED_META},
         )
         return response
 
@@ -281,6 +284,7 @@ class ModelAdapter:
         self._check_truncation(completion, request, capabilities)
         parsed, problem = self._parse(request.response_model, completion.text)
         input_tokens, output_tokens = completion.input_tokens, completion.output_tokens
+        meta = dict(completion.meta)
 
         if parsed is None:
             repair = replace(
@@ -295,6 +299,7 @@ class ModelAdapter:
             attempts += more
             self._check_truncation(completion, request, capabilities)
             parsed, problem = self._parse(request.response_model, completion.text)
+            meta = _merge_meta(meta, completion.meta)
             input_tokens = _add(input_tokens, completion.input_tokens)
             output_tokens = _add(output_tokens, completion.output_tokens)
             if parsed is None:
@@ -312,6 +317,7 @@ class ModelAdapter:
             latency_ms=(self._clock() - started) * 1000,
             cache_hit=False,
             attempts=attempts,
+            meta=meta,
         )
 
     def _complete_with_retries(self, call: BackendCall) -> tuple[Completion, int]:
@@ -443,9 +449,18 @@ class ModelAdapter:
                 "latency_ms": round(response.latency_ms, 1),
                 "cache_hit": response.cache_hit,
                 "attempts": response.attempts,
+                "backend_meta": response.meta,
             },
             parent_seq=request_seq,
         )
+
+
+def _merge_meta(first: dict[str, Any], second: dict[str, Any]) -> dict[str, Any]:
+    """Later values win, except counters that add up across the repair call."""
+    merged = {**first, **second}
+    if isinstance(first.get("failovers"), int) and isinstance(second.get("failovers"), int):
+        merged["failovers"] = first["failovers"] + second["failovers"]
+    return merged
 
 
 def _add(a: int | None, b: int | None) -> int | None:

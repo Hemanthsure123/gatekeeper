@@ -107,6 +107,8 @@ class ModelResponse[T: BaseModel]:
     latency_ms: float
     cache_hit: bool
     attempts: int
+    #: Backend facts safe to audit (e.g. the Gemini key alias and failovers); no secrets.
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
