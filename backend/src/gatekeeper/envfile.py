@@ -59,6 +59,12 @@ ALLOWED_KEYS: Final = frozenset(
         "DIFF_MAX_BYTES",
         "PR_MAX_FILES",
         *REVIEW_KEYS,
+        "API_HOST",
+        "API_PORT",
+        "TREE_MAX_ENTRIES",
+        "CHAT_MAX_HISTORY",
+        "CHAT_MAX_OUTPUT_TOKENS",
+        "COMMENT_MAX_CHARS",
     }
 )
 SECRET_MARKERS: Final = ("TOKEN", "SECRET", "KEY", "PASSWORD", "PRIVATE")
@@ -72,6 +78,7 @@ NAMED_LIKE_SECRET_BUT_NOT: Final = frozenset(
         "ALLOW_PRIVATE_REPOS_ON_HOSTED_MODEL",
         "REVIEW_MAX_OUTPUT_TOKENS",
         "REVIEW_DIFF_TOKEN_BUDGET",
+        "CHAT_MAX_OUTPUT_TOKENS",
     }
 )
 _KEY = re.compile(r"[A-Z][A-Z0-9_]*")

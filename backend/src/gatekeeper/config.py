@@ -132,6 +132,14 @@ class Settings(BaseSettings):
     review_max_output_tokens: int = Field(default=800, ge=64, le=8_192)
     review_diff_token_budget: int | None = Field(default=None, ge=256)
 
+    # P06: extension API, chat and the approved comment. Optional, non-secret.
+    api_host: str = "127.0.0.1"
+    api_port: int = Field(default=8000, ge=1, le=65_535)
+    tree_max_entries: int = Field(default=5_000, ge=100, le=100_000)
+    chat_max_history: int = Field(default=8, ge=0, le=50)
+    chat_max_output_tokens: int = Field(default=700, ge=64, le=8_192)
+    comment_max_chars: int = Field(default=3_000, ge=200, le=65_000)
+
     # P07 / P14 / P16
     hf_token: SecretStr | None = None
     gatekeeper_admin_token: SecretStr | None = None

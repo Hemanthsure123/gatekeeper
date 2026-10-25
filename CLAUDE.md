@@ -109,18 +109,25 @@ g. **No secrets in code, logs, tests or fixtures.** You may change non-secret se
   - Never add identity-based signals.
 - Exactly one model call per review. The reply draft is composed by code and stored, never posted.
 
-## Extension design principles (for the extension prompt)
+## Extension design principles (P06)
 
-- **One purpose:** show the verdict for the PR or issue page currently open.
-- **Three surfaces only:**
-  - a compact inline badge;
-  - a popup about 320px wide with the verdict, up to three evidence bullets linking to the cited lines, an abstain note, and an "Open in dashboard" link;
-  - a minimal options page (server URL and token).
-- **Light build:** TypeScript and Manifest V3. No heavy UI framework (vanilla, or Preact at most). Small bundle, no remote code, minimal permissions.
-- **Visual rules:** system font stack, one accent colour, automatic light and dark mode, a 4/8px spacing scale and WCAG AA contrast. It must be keyboard accessible and respect reduced motion. Status is never shown by colour alone.
-- **Exactly three states:** not analysed, analysing, result. Errors are one plain line.
-- **Read-only:** it never posts comments, adds labels or closes anything.
-- **Neutral, non-accusatory wording:** "Looks valuable", "Needs a human look", "Likely low value". Never "spam".
+- **One surface:** a Chromium side panel with three tabs: **Activity**, **Chat** and **Insights**. Plus a minimal options page (server URL, access token, "Follow clicks in GitHub tab").
+- **Activity tab:**
+  - a verdict card;
+  - a "Now:" line driven by real backend events;
+  - a changed-files repo tree (with an "All files" toggle);
+  - a live timeline.
+- **Neutral wording only:** "Looks valuable", "Needs a human look", "Likely low value". Never "spam".
+- **Minimal build:** TypeScript and Manifest V3, built with plain Vite. No heavy UI framework and no remote code.
+- **Visual rules:**
+  - system font stack, one accent colour, automatic light and dark mode;
+  - 4/8px spacing scale, WCAG AA contrast;
+  - keyboard accessible, reduced motion respected;
+  - status never shown by colour alone (always an icon plus text);
+  - the panel works from 320px wide.
+- **Network:** every call to the Gatekeeper API is made from the side panel (the extension origin), never from content scripts. The content script only scrolls and highlights on github.com, and replies found or not found. It sends no page data anywhere.
+- **Read-only, with one exception:** posting a single approved comment, after a person confirms the exact text.
+- **Identity-free:** author names, account details and avatars are never shown.
 
 ## Definition of done
 
