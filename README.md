@@ -61,6 +61,14 @@ eval/        placeholder for the evaluation harness
 docs/        architecture, ADRs and build logs
 ```
 
+## Playground setup (hosted Gemma)
+
+1. Add your Gemini API key(s) after `GEMINI_API_KEYS=` in `.env` (comma-separated), then run `make gemma-setup`. It checks each key by alias and selects the Gemma 4 models.
+2. Run `make model-check`. Run it twice: the second call should be a cache hit.
+3. Add a read-only fine-grained token for your playground repository as `GITHUB_TOKEN_DEV` (Pull requests, Issues and Contents: read), then run `uv run gatekeeper whoami`.
+4. Seed the playground with the synthetic demo pack ([demo/README.md](demo/README.md)), then run `uv run gatekeeper discover-repo`.
+5. List the open PRs with `uv run gatekeeper list-prs <owner>/gatekeeper-playground`, then review one with `uv run gatekeeper fetch-pr <owner>/gatekeeper-playground#2`.
+
 ## Data handling
 
 - **API mode** (`MODEL_BACKEND=gemini_api`): the scrubbed pull request content is sent to Google's Gemini API. That content is the title, the description, the diff and the computed signals, with the author's login, mentions, profile links and e-mail addresses removed. Google's terms for the Gemini API apply to that data.

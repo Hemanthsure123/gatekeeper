@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **partly built**. As of P04 these exist: the gateway, the Postgres queue, the review core (identity scrub, signals, one model call, verifier, confidence, reply draft), the audit trail and the model adapter. The action executor is still planned, and nothing is posted to GitHub. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md), [ADR 0002](adr/0002-database-identity-and-audit.md), [ADR 0003](adr/0003-model-adapter.md), [ADR 0004](adr/0004-intake-queue-and-identity-boundary.md) and [ADR 0005](adr/0005-review-core.md).
+Status: **partly built**. As of P04 these exist: the gateway, the Postgres queue, the review core (identity scrub, signals, one model call, verifier, confidence, reply draft), the audit trail and the model adapter. The action executor is still planned, and nothing is posted to GitHub. The guiding decisions are in [ADR 0001](adr/0001-thesis-and-non-goals.md), [ADR 0002](adr/0002-database-identity-and-audit.md), [ADR 0003](adr/0003-model-adapter.md), [ADR 0004](adr/0004-intake-queue-and-identity-boundary.md), [ADR 0005](adr/0005-review-core.md) and [ADR 0006](adr/0006-hosted-gemma-and-key-pool.md).
 
 ```mermaid
 flowchart LR
@@ -146,3 +146,14 @@ flowchart LR
 | `gatekeeper.review_core.verifier` | Citation checks, `citation_validity`, the no-accusation-without-proof downgrade. |
 | `gatekeeper.review_core.confidence` | Heuristic confidence v1 (uncalibrated) and the abstain decision. |
 | `gatekeeper.review_core.reply` | Deterministic reply draft with the banned-word filter. |
+
+## P05: hosted Gemma and the key pool
+
+The default backend is `gemini_api` (Gemma 4 on the Gemini API), running through the same `ModelAdapter`. The Gemini driver takes keys from `KeyPool`:
+
+- rotation (round robin or primary first);
+- cooldowns on 429, with the request moving to the next key without using a retry;
+- invalid keys dropped for the process;
+- keys referred to only by alias.
+
+`process_pr` refuses private repositories on a hosted backend unless explicitly allowed. Ollama stays available as the local backend.

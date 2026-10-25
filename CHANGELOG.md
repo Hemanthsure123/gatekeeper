@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
+- P05: hosted Gemma 4 through the Gemini API as the default backend.
+- Rotating Gemini key pool (`GEMINI_API_KEYS`) with cooldowns, failover, dead-key handling and key redaction.
+- `make gemma-setup` and `make env-set`.
+- New commands: `gatekeeper whoami`, `discover-repo` and `list-prs`.
+- Private-repository guard for hosted models.
+- Synthetic demo pack (`demo/`).
+- ADR 0006.
+
+### Changed (P05)
+
+- The banned-word filter now scans only the model's contributor note.
+- Leak-guard trips fail with `identity_leak_blocked`.
+- `typo_scale` is neutral.
+- `make doctor` reports Ollama as info when another backend is active.
+- Logs keep token counts and key aliases readable.
+
 - P04 review core:
   - identity scrub at the boundary, and a leak guard on model requests;
   - 10 deterministic signals;

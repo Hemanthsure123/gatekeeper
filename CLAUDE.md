@@ -4,6 +4,24 @@ Gatekeeper is a local-first, open-model GitHub triage tool for PRs, issues and c
 
 **Thesis:** judge the work, not the contributor. Show verified evidence. Admit uncertainty. Never take harmful automatic actions. Record every decision so it is replayable.
 
+## Standing rule: things only the user can provide
+
+Whenever a step needs something only the user can provide, STOP that step and print exactly this block, then wait. Examples: an account, key, token, repository, permission, running a script on their machine, or a decision.
+
+```
+=== ACTION NEEDED FROM USER ===
+What: <one line>
+Why: <one line>
+Steps: <numbered, exact, short>
+.env key: <NAME, which I add myself> or "none"
+Reply "done" and I will continue.
+=== END ===
+```
+
+- Never mock around it, skip it silently or guess values.
+- Do as much as you can safely do yourself first.
+- `gatekeeper.action_needed.action_needed()` prints this block from code.
+
 ## Architecture layers (details: docs/architecture.md)
 
 1. **Gateway**: receives GitHub events (webhooks or polling), verifies signatures, normalizes payloads.
@@ -39,8 +57,10 @@ g. **No secrets in code, logs, tests or fixtures.** You may change non-secret se
 | `make env-check` / `make env-sync` | SET/MISSING per key grouped by prompt / append missing keys empty; never print values |
 | `make migrate` / `make migrate-down` | Alembic upgrade head / downgrade one revision |
 | `make db-reset` | downgrade to base and upgrade to head; refuses unless `APP_ENV=development` |
+| `make gemma-setup` | check every Gemini key by alias, pick the Gemma 4 model ids, set MODEL_BACKEND |
 | `make model-check` | backend health, capabilities, two structured calls (2nd = cache hit); `ARGS=--vision` tests image input (warning only), `ARGS=--require-vision` makes it fatal |
 | `make api` / `make worker` / `make relay` | webhook gateway on 127.0.0.1:8000 / one queue worker / smee relay from WEBHOOK_PROXY_URL |
+| `uv run gatekeeper whoami\|discover-repo\|list-prs` | check GitHub credentials, set the allowlist, list open PRs (read-only) |
 | `uv run gatekeeper fetch-pr\|enqueue-pr\|show\|audit\|jobs` | review a PR inline (`--json`), queue it, print a stored analysis, inspect a run's audit chain, list jobs |
 | `make doctor` | tool versions and Ollama status; never reads `.env` |
 | `make clean` | remove caches and build output |
